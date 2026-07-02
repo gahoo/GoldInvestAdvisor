@@ -46,28 +46,28 @@ function App() {
 
     if (strategy === 'grid') {
       targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.5);
-      if (indicators.bias > 0.05) { multiplier = 0.5; reason = '当前偏离均线较高，建议减少买入量。'; }
-      else if (indicators.bias < -0.05) { multiplier = 2.0; reason = '处于深度回调区，建议双倍买入。'; }
-      else if (indicators.bias < -0.02) { multiplier = 1.5; reason = '略微低估，建议 1.5 倍买入。'; }
-      else { reason = '基于波动率预留安全垫，正常定投。'; }
+      // 连续倍率算法：以 1.0 为基准，反向放大 BIAS 的偏离 (斜率设置为 15)
+      multiplier = Math.max(0.1, Math.min(3.0, 1.0 - (indicators.bias * 15)));
+      reason = `当前偏离均线 ${(indicators.bias * 100).toFixed(2)}%，通过线性函数自动调节定投倍率为 ${multiplier.toFixed(2)}x。`;
     } else if (strategy === 'grid_drawdown') {
       targetPrice = indicators.referencePrice * (1 + (indicators.drawdown || 0));
-      if (indicators.bias < -0.03) { multiplier = 1.5; reason = '已达历史典型回撤位，且乖离率偏低，加仓买入。'; }
-      else { reason = '挂单在历史典型回撤位，防守性好，正常定投。'; }
+      multiplier = Math.max(0.5, Math.min(3.0, 1.0 - (indicators.bias * 10)));
+      reason = `结合回撤锚点与当前乖离率动态量化，测算精准购入倍率为 ${multiplier.toFixed(2)}x。`;
     } else if (strategy === 'grid_fib') {
       if (indicators.currentPrice > indicators.fib?.level382) {
         targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.382);
-        reason = '处于强趋势上方，防守挂单偏浅（38.2% 波动率）。';
+        multiplier = Math.max(0.5, Math.min(2.0, 1.0 - (indicators.bias * 10)));
+        reason = '处于强趋势上方，防守挂单偏浅，依据当前偏离度平滑调整倍数。';
       } else {
         targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.618);
-        reason = '处于趋势下方，防守挂单较深（61.8% 波动率）。';
+        multiplier = Math.max(1.0, Math.min(3.0, 1.2 - (indicators.bias * 15)));
+        reason = '处于趋势下方，防守挂单较深，适当放大左侧抄底的倍率倾斜。';
       }
     } else if (strategy === 'mean_reversion') {
-      // 防止目标价高于现价
       targetPrice = Math.min(indicators.fib?.level618 || indicators.currentPrice, indicators.currentPrice);
-      if (indicators.rsi < 30) { multiplier = 2.0; reason = 'RSI 超卖极值，且逼近强支撑，建议加倍抄底！'; }
-      else if (indicators.rsi > 70) { multiplier = 0.0; reason = 'RSI 超买极值，建议观望等待回落。'; }
-      else { reason = `正常波动区间，目标价放在近期 61.8% 支撑位 (${targetPrice.toFixed(2)}) 或现价。`; }
+      // 连续倍率算法：RSI 50 为中轴 (1x)，向 30 靠近放大至 2x，向 70 靠近缩小至 0x
+      multiplier = Math.max(0.0, Math.min(3.0, 1.0 + (50 - indicators.rsi) / 20));
+      reason = `RSI 为 ${indicators.rsi?.toFixed(1)}，基于 RSI 中轴偏离度映射为 ${multiplier.toFixed(2)}x 连续倍率。`;
     } else if (strategy === 'calendar') {
       targetPrice = indicators.currentPrice * 0.998;
       const today = new Date().getDay() || 7;
@@ -79,14 +79,22 @@ function App() {
         reason = '今天不是历史最佳买入日，建议观望或大幅打折挂单。';
       }
     } else if (strategy === 'macro') {
-      if (macro && macro.dxy?.change > 0 && macro.tnx?.change > 0) {
-        targetPrice = indicators.currentPrice * 0.99;
-        multiplier = 1.5;
-        reason = '美元和美债双双飙升，黄金大概率承压，向下打折 1% 左侧接多。';
+      if (macro && macro.dxy?.changePercent !== undefined && macro.tnx?.changePercent !== undefined) {
+        // 连续倍率算法：美元和美债双涨时，按两者的涨幅共振强度计算购买倍数和打折力度
+        const pressure = macro.dxy.changePercent + macro.tnx.changePercent;
+        if (pressure > 0) {
+          multiplier = Math.min(3.0, 1.0 + (pressure * 0.5));
+          targetPrice = indicators.currentPrice * (1 - (pressure * 0.005));
+          reason = `美债和美元产生 ${pressure.toFixed(2)}% 的联合共振压制，动态向下打折接针，加码 ${multiplier.toFixed(2)}x。`;
+        } else {
+          targetPrice = indicators.currentPrice;
+          multiplier = 1.0;
+          reason = '宏观因子未形成共振上行压制，维持现价 1.00x 正常定投。';
+        }
       } else {
         targetPrice = indicators.currentPrice;
         multiplier = 1.0;
-        reason = '宏观因子未形成共振双涨，无额外压制，维持现价正常定投。';
+        reason = '加载宏观因子中，维持默认定投。';
       }
     }
 
@@ -305,9 +313,9 @@ function App() {
             <div className="advice-box">
               <div className="advice-label">⚖️ 建议购入克数</div>
               <div className="advice-value">
-                {advice?.grams.toFixed(1)} g 
+                {advice?.grams.toFixed(2)} g 
                 <span style={{ fontSize: '1rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                  ({advice?.multiplier}x)
+                  ({advice?.multiplier.toFixed(2)}x)
                 </span>
               </div>
               <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5' }}>
