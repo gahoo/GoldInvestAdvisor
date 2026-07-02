@@ -32,17 +32,36 @@ function formatCCBData(fieldList) {
   // 建行数据可能是按倒序排列的，且属性名需要映射
   // 假设格式为 { date: "2024-01-01", open: "500.1", close: "502.2", high: "505", low: "499" }
   
-  const formattedData = fieldList.map(item => {
-    const d = new Date(item.date);
-    const wday = d.getDay();
-    return {
+  const formattedData = [];
+  
+  fieldList.forEach(item => {
+    if (!item.date || !item.close) return;
+    
+    // 修复 1: 避免 new Date('YYYY-MM-DD') 按 UTC 0点解析导致东八区前移一天的问题
+    // 将其拆解按本地时区构建 Date 对象
+    const parts = item.date.split('-');
+    if (parts.length !== 3) return;
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    
+    const wday = d.getDay() === 0 ? 7 : d.getDay();
+    
+    const open = parseFloat(item.open);
+    const high = parseFloat(item.high);
+    const low = parseFloat(item.low);
+    const close = parseFloat(item.close);
+    
+    // 修复 2: 剔除脏数据 (NaN 或 逻辑错误如最高价低于最低价)
+    if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) return;
+    if (high < low) return;
+    
+    formattedData.push({
       date: item.date,
-      open: parseFloat(item.open),
-      high: parseFloat(item.high),
-      low: parseFloat(item.low),
-      close: parseFloat(item.close),
-      wday: wday === 0 ? 7 : wday,
-    };
+      open,
+      high,
+      low,
+      close,
+      wday,
+    });
   });
   
   

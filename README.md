@@ -1,16 +1,47 @@
-# React + Vite
+# 黄金定投顾问 (Gold Invest Advisor)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+一个基于真实历史行情的智能黄金定投辅助工具。通过多维度的量化策略分析，帮助定投用户寻找每周的“左侧接针”低点，优化买入成本。
 
-Currently, two official plugins are available:
+## 功能特性
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **多空六大策略引擎**：
+  - **基础网格**：基于波动率预留安全垫。
+  - **历史典型回撤**：抛弃理论模型，使用过去 52 周真实的“周一至当周极值”中位跌幅作为安全垫，防守性极强。
+  - **动态波动 (ATR+Fib)**：基于真实波动幅度和趋势强弱动态挂单。
+  - **均值回归**：通过 RSI 和斐波那契回撤线计算支撑抄底价。
+  - **日历效应**：基于历史数据统计，寻找胜率最高的“定投日”。
+  - **宏观多因子**：引入美元指数 (DXY) 和十年期美债收益率 (US10Y) 共振分析。
+- **全透明的建议原因**：不仅告诉你买多少、以什么价格买，还会详细解释背后的算法逻辑。
+- **动态图表展示**：使用 Recharts 渲染 K 线、均线等核心技术指标。
+- **降级容灾机制**：在数据真空期（如周一早盘），自动使用合理的价格基准防止算法失效。
 
-## React Compiler
+## 架构与数据源
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **前端框架**：React + Vite + Recharts
+- **数据流与代理**：Cloudflare Pages Functions (`/api/*`)
+  - **黄金价格**：通过代理抓取建行 (CCB) 历史金价数据并进行本地清洗（去除无效数据、时区校准）。
+  - **宏观因子**：通过代理抓取 Yahoo Finance 的实时宏观数据（带有 Cloudflare CDN 级缓存和超时保护机制）。
 
-## Expanding the Oxlint configuration
+## 部署说明
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+本项目针对 Cloudflare Pages 进行了深度适配。
+
+1. 安装依赖：
+   ```bash
+   npm install
+   ```
+2. 本地开发运行：
+   ```bash
+   npm run dev
+   ```
+3. 部署到 Cloudflare Pages：
+   请使用 Wrangler 部署 Pages 专用的输出流。
+   ```bash
+   npm run build
+   npx wrangler pages deploy dist
+   ```
+
+## ⚠️ 免责声明
+
+本工具仅为量化策略演示，算法输出基于历史统计与指标计算，**绝不构成任何实际投资建议**。
+市场有风险，过去的表现不能代表或预测未来收益。任何因使用本系统产生的交易盈亏均由使用者自行承担，投资入市需谨慎。

@@ -1,4 +1,4 @@
-export async function onRequest(context) {
+export async function onRequest() {
   // Cloudflare Pages Function Proxy for CCB Gold Price API
   // This will handle CORS and clean up the dirty JSON format returned by the bank
   
@@ -14,7 +14,12 @@ export async function onRequest(context) {
   const targetUrl = `http://yunchong.ccb.com/mbsmt/ccbmb/MBService?TXCODE=JSH015&imgCode=060003&bondType=1&days=${dateRange}`;
   
   try {
-    const response = await fetch(targetUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    
+    const response = await fetch(targetUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    
     let text = await response.text();
     
     // Clean up dirty JSON (replace single quotes with double quotes)
@@ -27,8 +32,8 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ success: true, data: fieldList }), {
       headers: {
         'Content-Type': 'application/json',
-        // Allow CORS for local development
         'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=3600' // 缓存1小时
       }
     });
   } catch (error) {

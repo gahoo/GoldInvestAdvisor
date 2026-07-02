@@ -12,24 +12,58 @@ export function calculateSMA(data, period, key = 'close') {
  * 计算真实波动幅度 (ATR)
  */
 export function calculateATR(data, period = 14) {
-  if (data.length <= period) return null;
-  
-  let trSum = 0;
-  // 计算过去 period 天的 TR
-  for (let i = data.length - period; i < data.length; i++) {
+  if (!data || data.length < period + 1) return null;
+
+  const trs = [];
+  for (let i = 1; i < data.length; i++) {
     const high = data[i].high;
     const low = data[i].low;
-    const prevClose = data[i-1].close;
-    
-    const tr1 = high - low;
-    const tr2 = Math.abs(high - prevClose);
-    const tr3 = Math.abs(low - prevClose);
-    
-    const tr = Math.max(tr1, tr2, tr3);
-    trSum += tr;
+    const prevClose = data[i - 1].close;
+
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    trs.push(tr);
   }
+
+  // 计算简单的移动平均 ATR
+  let sum = 0;
+  for (let i = trs.length - period; i < trs.length; i++) {
+    sum += trs[i];
+  }
+  return sum / period;
+}
+
+/**
+ * 合成真实的周 K 线，并计算真实的周 ATR
+ */
+export function calculateWeeklyATR(data, period = 4) {
+  if (!data || data.length < period * 5) return 0;
   
-  return trSum / period;
+  const weeklyCandles = [];
+  let currentWeek = { high: -Infinity, low: Infinity, close: null };
+  
+  for (let i = 0; i < data.length; i++) {
+    const d = data[i];
+    
+    // 如果是一周的开始 (周一) 或者是数组的第一个元素
+    if (d.wday === 1 || i === 0 || d.wday < data[i-1].wday) {
+      if (i !== 0) {
+        weeklyCandles.push({ ...currentWeek });
+      }
+      currentWeek = { high: d.high, low: d.low, close: d.close };
+    } else {
+      currentWeek.high = Math.max(currentWeek.high, d.high);
+      currentWeek.low = Math.min(currentWeek.low, d.low);
+      currentWeek.close = d.close; // 不断更新为这周最后一天的收盘价
+    }
+  }
+  // push the last week
+  weeklyCandles.push({ ...currentWeek });
+  
+  return calculateATR(weeklyCandles, Math.min(period, weeklyCandles.length - 1)) || 0;
 }
 
 /**
@@ -194,11 +228,39 @@ export function calculateAllIndicators(data) {
   const calendar = calculateCalendarEffect(data);
   const drawdown = calculateWeeklyDrawdown(data);
   
-  // 预估周 ATR (日 ATR * sqrt(5))
-  const weeklyAtr = atr14 ? atr14 * Math.sqrt(5) : 0;
+  // 真实的周 ATR
+  const weeklyAtr = calculateWeeklyATR(data, 4);
+  
+  // 计算本周的基准价格 (用于历史回撤策略)
+  let thisWeekMondayClose = null;
+  let lastFridayClose = null;
+  
+  for (let i = data.length - 1; i >= 0; i--) {
+    const d = data[i];
+    // 假设这是过去一两周内寻找
+    if (d.wday === 1 && !thisWeekMondayClose) {
+      thisWeekMondayClose = d.close;
+    }
+    if (d.wday === 5 && !lastFridayClose && thisWeekMondayClose) { // 必须是在本周一之前的周五
+      lastFridayClose = d.close;
+    }
+    if (thisWeekMondayClose && lastFridayClose) break;
+  }
+  
+  const currentWday = data[data.length - 1].wday;
+  let referencePrice = currentPrice; // 次选：当前实时现价 (周一盘中)
+  
+  if (currentWday !== 1 && thisWeekMondayClose) {
+    referencePrice = thisWeekMondayClose; // 首选：本周一收盘价
+  } else if (currentWday === 1) {
+    referencePrice = currentPrice;
+  } else if (!thisWeekMondayClose && lastFridayClose) {
+    referencePrice = lastFridayClose; // 兜底：上周五收盘价
+  }
   
   return {
     currentPrice,
+    referencePrice,
     ma20,
     ma60,
     atr: atr14,

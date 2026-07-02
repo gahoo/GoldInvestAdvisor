@@ -1,11 +1,17 @@
-export async function onRequest(context) {
+export async function onRequest() {
   // 代理请求 Yahoo Finance 的宏观数据 (DXY 美元指数, ^TNX 美国十年期国债收益率)
   
   try {
     const fetchYahoo = async (symbol) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      
       const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: controller.signal
       });
+      clearTimeout(timeout);
+      
       const data = await res.json();
       const result = data.chart?.result?.[0];
       if (!result) return null;
@@ -27,6 +33,7 @@ export async function onRequest(context) {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=3600'
       }
     });
   } catch (error) {

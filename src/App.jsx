@@ -28,6 +28,8 @@ function App() {
   const isActive = (cardType) => {
     switch (strategy) {
       case 'grid': return ['atr', 'bias', 'price'].includes(cardType);
+      case 'grid_drawdown': return ['bias', 'price'].includes(cardType);
+      case 'grid_fib': return ['atr', 'fib', 'price'].includes(cardType);
       case 'mean_reversion': return ['rsi', 'fib', 'price'].includes(cardType);
       case 'calendar': return ['calendar', 'price'].includes(cardType);
       case 'macro': return ['macro', 'price'].includes(cardType);
@@ -40,43 +42,57 @@ function App() {
     
     let targetPrice = indicators.currentPrice;
     let multiplier = 1.0;
-    
-    // 动态计算：为什么选择不同策略目标价不同？因为每个策略的"安全垫"逻辑不同
+    let reason = '';
+
     if (strategy === 'grid') {
       targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.5);
-      if (indicators.bias > 0.05) multiplier = 0.5;
-      else if (indicators.bias < -0.05) multiplier = 2.0;
-      else if (indicators.bias < -0.02) multiplier = 1.5;
+      if (indicators.bias > 0.05) { multiplier = 0.5; reason = '当前偏离均线较高，建议减少买入量。'; }
+      else if (indicators.bias < -0.05) { multiplier = 2.0; reason = '处于深度回调区，建议双倍买入。'; }
+      else if (indicators.bias < -0.02) { multiplier = 1.5; reason = '略微低估，建议 1.5 倍买入。'; }
+      else { reason = '基于波动率预留安全垫，正常定投。'; }
     } else if (strategy === 'grid_drawdown') {
-      targetPrice = indicators.currentPrice * (1 + (indicators.drawdown || 0));
-      if (indicators.bias < -0.03) multiplier = 1.5;
+      targetPrice = indicators.referencePrice * (1 + (indicators.drawdown || 0));
+      if (indicators.bias < -0.03) { multiplier = 1.5; reason = '已达历史典型回撤位，且乖离率偏低，加仓买入。'; }
+      else { reason = '挂单在历史典型回撤位，防守性好，正常定投。'; }
     } else if (strategy === 'grid_fib') {
       if (indicators.currentPrice > indicators.fib?.level382) {
         targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.382);
+        reason = '处于强趋势上方，防守挂单偏浅（38.2% 波动率）。';
       } else {
         targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.618);
+        reason = '处于趋势下方，防守挂单较深（61.8% 波动率）。';
       }
     } else if (strategy === 'mean_reversion') {
-      targetPrice = indicators.fib?.level618 || targetPrice;
-      if (indicators.rsi < 30) multiplier = 2.0;
-      else if (indicators.rsi > 70) multiplier = 0.0;
+      // 防止目标价高于现价
+      targetPrice = Math.min(indicators.fib?.level618 || indicators.currentPrice, indicators.currentPrice);
+      if (indicators.rsi < 30) { multiplier = 2.0; reason = 'RSI 超卖极值，且逼近强支撑，建议加倍抄底！'; }
+      else if (indicators.rsi > 70) { multiplier = 0.0; reason = 'RSI 超买极值，建议观望等待回落。'; }
+      else { reason = `正常波动区间，目标价放在近期 61.8% 支撑位 (${targetPrice.toFixed(2)}) 或现价。`; }
     } else if (strategy === 'calendar') {
       targetPrice = indicators.currentPrice * 0.998;
       const today = new Date().getDay() || 7;
-      multiplier = (indicators.calendar?.bestBuyDay === today) ? 1.0 : 0.0;
+      if (indicators.calendar?.bestBuyDay === today) {
+        multiplier = 1.0;
+        reason = '今天是历史统计的当周最低日，可略微打折挂单。';
+      } else {
+        multiplier = 0.0;
+        reason = '今天不是历史最佳买入日，建议观望或大幅打折挂单。';
+      }
     } else if (strategy === 'macro') {
       if (macro && macro.dxy?.change > 0 && macro.tnx?.change > 0) {
         targetPrice = indicators.currentPrice * 0.99;
         multiplier = 1.5;
+        reason = '美元和美债双双飙升，黄金大概率承压，向下打折 1% 左侧接多。';
       } else {
         targetPrice = indicators.currentPrice;
         multiplier = 1.0;
+        reason = '宏观因子未形成共振双涨，无额外压制，维持现价正常定投。';
       }
     }
 
     const grams = baseGrams * multiplier;
 
-    return { targetPrice, grams, multiplier };
+    return { targetPrice, grams, multiplier, reason };
   }, [indicators, macro, baseGrams, strategy]);
 
   if (error) {
@@ -107,7 +123,7 @@ function App() {
             <h3 className="section-title">投资策略</h3>
             <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
               <button className={`strategy-btn ${strategy === 'grid' ? 'active' : ''}`} onClick={() => setStrategy('grid')}>基础网格</button>
-              <button className={`strategy-btn ${strategy === 'grid_drawdown' ? 'active' : ''}`} onClick={() => setStrategy('grid_drawdown')}>历史最大回撤</button>
+              <button className={`strategy-btn ${strategy === 'grid_drawdown' ? 'active' : ''}`} onClick={() => setStrategy('grid_drawdown')}>历史典型回撤</button>
               <button className={`strategy-btn ${strategy === 'grid_fib' ? 'active' : ''}`} onClick={() => setStrategy('grid_fib')}>动态波动 (ATR+Fib)</button>
               <button className={`strategy-btn ${strategy === 'mean_reversion' ? 'active' : ''}`} onClick={() => setStrategy('mean_reversion')}>均值回归</button>
               <button className={`strategy-btn ${strategy === 'calendar' ? 'active' : ''}`} onClick={() => setStrategy('calendar')}>日历效应</button>
@@ -119,17 +135,17 @@ function App() {
                 <>
                   <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 基础网格吃单 (经典版)</div>
                   <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>利用近期的平均真实波动率 (ATR)，在现价下方预留半个波动空间作为安全垫进行左侧挂单。<br/>
-                    <strong>算法：</strong>目标价 = 现价 - (周ATR × 0.5)。倍率受 MA60 乖离率动态调节。
+                    <strong>逻辑：</strong>利用底层引擎合成的真实周 K 线，精确计算周级别的真实波动率 (Weekly ATR)，在现价下方预留半个真实波动空间作为防守安全垫。<br/>
+                    <strong>算法：</strong>目标价 = 现价 - (真实周ATR × 0.5)。买入倍率受中长期均线 (MA60) 的乖离率动态调节。
                   </div>
                 </>
               )}
               {strategy === 'grid_drawdown' && (
                 <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 保守网格：历史最大回撤预测法 (推荐🌟)</div>
+                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 保守网格：历史典型回撤预测法 (推荐🌟)</div>
                   <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>抛弃理论波动率，直接回溯过去 52 周的真实行情，计算每周“周一到当周极值”的真实平均跌幅作为安全垫。<br/>
-                    <strong>算法：</strong>目标价 = 现价 × (1 - 历史中位数周内跌幅)。更贴近黄金“急跌慢涨”的真实不对称性。
+                    <strong>逻辑：</strong>直接回溯过去 52 周的真实历史行情，计算每周“周一开局至当周极值”的典型跌幅（中位数）作为安全垫。<br/>
+                    <strong>算法：</strong>目标价 = 本周基准锚点价 × (1 - 历史中位数跌幅)。基准锚点优先锁定“本周一收盘价”，遇到盘中或假期真空期会自动降级为当前现价。这完美贴合黄金“急跌慢涨”的非对称属性。
                   </div>
                 </>
               )}
@@ -137,8 +153,8 @@ function App() {
                 <>
                   <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 动态防守：ATR与斐波那契结合法</div>
                   <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>结合当前趋势强度（斐波那契支撑）和市场恐慌度（ATR）来决定防守深度。<br/>
-                    <strong>算法：</strong>如果在强支撑上，目标价 = 现价 - 周ATR × 38.2%；如果在支撑下震荡，则设在更极端的 61.8% 深位防守。
+                    <strong>逻辑：</strong>结合当前趋势强度（斐波那契回调位）和市场的极值恐慌度（真实周 ATR）来动态决定防守深度。<br/>
+                    <strong>算法：</strong>如果在强支撑上方，目标价 = 现价 - 真实周ATR × 38.2%；如果跌破支撑陷入震荡，防守底线后撤至更极端的 61.8% 深位。
                   </div>
                 </>
               )}
@@ -244,13 +260,13 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>DXY:</span>
                       <span className={macro.dxy?.change > 0 ? 'up' : 'down'} style={{ fontWeight: '600' }}>
-                        {macro.dxy?.price.toFixed(2)} ({macro.dxy?.changePercent > 0 ? '+' : ''}{macro.dxy?.changePercent.toFixed(2)}%)
+                        {macro.dxy?.price?.toFixed(2)} ({macro.dxy?.changePercent > 0 ? '+' : ''}{macro.dxy?.changePercent?.toFixed(2)}%)
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>US10Y:</span>
                       <span className={macro.tnx?.change > 0 ? 'up' : 'down'} style={{ fontWeight: '600' }}>
-                        {macro.tnx?.price.toFixed(3)}% ({macro.tnx?.changePercent > 0 ? '+' : ''}{macro.tnx?.changePercent.toFixed(2)}%)
+                        {macro.tnx?.price?.toFixed(3)}% ({macro.tnx?.changePercent > 0 ? '+' : ''}{macro.tnx?.changePercent?.toFixed(2)}%)
                       </span>
                     </div>
                   </>
@@ -294,13 +310,16 @@ function App() {
                   ({advice?.multiplier}x)
                 </span>
               </div>
-              <div className="advice-sub" style={{ marginTop: '12px' }}>
-                {advice?.multiplier > 1.0 ? '📉 指标出现低估机会，建议加仓买入' : 
-                 advice?.multiplier < 1.0 ? '📈 价格偏高或超买，建议减仓或观望' : 
-                 '📊 指标平稳，维持基准金额定投'}
+              <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5' }}>
+                💡 {advice?.reason}
               </div>
             </div>
             
+            <div style={{ marginTop: '30px', padding: '12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              <strong>⚠️ 免责声明：</strong><br/>
+              本工具为量化策略演示，算法输出基于历史统计与指标计算，<strong>不构成任何实际投资建议</strong>。市场有风险，过去的表现不代表未来收益，请根据自身风险承受能力独立判断，投资入市需谨慎。
+            </div>
+
             <div className="footer-note" style={{ marginTop: '30px' }}>
               若未成交，说明未现期望低点，资金可留待下次定投。
             </div>
