@@ -50,9 +50,9 @@ function formatCCBData(fieldList) {
     const low = parseFloat(item.low);
     const close = parseFloat(item.close);
     
-    // 修复 2: 剔除脏数据 (NaN 或 逻辑错误如最高价低于最低价)
+    // 修复 2: 剔除脏数据 (NaN 或 逻辑错误)
     if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) return;
-    if (high < low) return;
+    if (high < low || high < open || high < close || low > open || low > close) return;
     
     formattedData.push({
       date: item.date,

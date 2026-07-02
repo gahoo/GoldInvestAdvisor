@@ -5,21 +5,19 @@ export async function onRequest() {
   // 生成过去 365 天的日期字符串，例如: 2024-01-01;2024-01-02;...
   const dates = [];
   const now = new Date();
-  for (let i = 1; i <= 365; i++) {
+  for (let i = 0; i < 365; i++) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
     dates.push(d.toISOString().split('T')[0]);
   }
   const dateRange = dates.join(';') + ';';
   
-  const targetUrl = `http://yunchong.ccb.com/mbsmt/ccbmb/MBService?TXCODE=JSH015&imgCode=060003&bondType=1&days=${dateRange}`;
+  const targetUrl = `https://yunchong.ccb.com/mbsmt/ccbmb/MBService?TXCODE=JSH015&imgCode=060003&bondType=1&days=${dateRange}`;
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
   
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
-    
     const response = await fetch(targetUrl, { signal: controller.signal });
-    clearTimeout(timeout);
-    
     let text = await response.text();
     
     // Clean up dirty JSON (replace single quotes with double quotes)
@@ -41,5 +39,7 @@ export async function onRequest() {
       status: 500,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
     });
+  } finally {
+    clearTimeout(timeout);
   }
 }

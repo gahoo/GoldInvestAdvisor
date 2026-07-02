@@ -6,22 +6,31 @@ export async function onRequest() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
       
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      
-      const data = await res.json();
-      const result = data.chart?.result?.[0];
-      if (!result) return null;
-      
-      const price = result.meta?.regularMarketPrice;
-      const prev = result.meta?.chartPreviousClose;
-      const change = price - prev;
-      const changePercent = (change / prev) * 100;
-      
-      return { price, change, changePercent };
+      try {
+        const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: controller.signal
+        });
+        
+        if (!res.ok) return null;
+        
+        const data = await res.json();
+        const result = data.chart?.result?.[0];
+        if (!result) return null;
+        
+        const price = result.meta?.regularMarketPrice;
+        const prev = result.meta?.chartPreviousClose;
+        if (!Number.isFinite(price) || !Number.isFinite(prev) || prev === 0) return null;
+        
+        const change = price - prev;
+        const changePercent = (change / prev) * 100;
+        
+        return { price, change, changePercent };
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timeout);
+      }
     };
 
     const [dxy, tnx] = await Promise.all([

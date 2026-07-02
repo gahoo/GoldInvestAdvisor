@@ -9,13 +9,15 @@ function App() {
   const [indicators, setIndicators] = useState(null);
   const [macro, setMacro] = useState(null);
   const [strategy, setStrategy] = useState('grid');
-  const [baseGrams, setBaseGrams] = useState(1); 
+  const [baseGrams, setBaseGrams] = useState(1);
+  const [atrPeriod, setAtrPeriod] = useState(14);
+  const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchGoldData().then(result => {
       setData(result);
-      setIndicators(calculateAllIndicators(result));
+      setIndicators(calculateAllIndicators(result, { atrPeriod }));
     }).catch(err => {
       setError(err.message);
     });
@@ -23,7 +25,7 @@ function App() {
     fetchMacroData().then(res => {
       if (res) setMacro(res);
     });
-  }, []);
+  }, [atrPeriod]);
 
   const isActive = (cardType) => {
     switch (strategy) {
@@ -119,10 +121,36 @@ function App() {
 
   return (
     <div className="app-container">
-      <header>
-        <h1>智能黄金定投顾问</h1>
-        <p className="subtitle">科学的量化交易策略，助您穿越周期</p>
+      <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>黄金定投分析助手</h1>
+          <p className="subtitle">量化策略数据参考模型</p>
+        </div>
+        <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--text-secondary)' }}>
+          ⚙️
+        </button>
       </header>
+
+      {showSettings && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '320px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <h2 style={{ marginBottom: '20px', fontSize: '1.2rem' }}>参数设置</h2>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>基础定投克数 (g)</label>
+              <input type="number" value={baseGrams} onChange={e => setBaseGrams(Number(e.target.value) || 1)} min="0.1" step="0.1" style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>周 ATR 统计周期 (周)</label>
+              <input type="number" value={atrPeriod} onChange={e => setAtrPeriod(Number(e.target.value) || 1)} min="1" max="52" style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px' }}>较长的周期 (如 14) 防守性更强，较短的周期 (如 4) 策略更敏感。</div>
+            </div>
+
+            <button onClick={() => setShowSettings(false)} className="strategy-btn active" style={{ width: '100%', padding: '10px' }}>保存并关闭</button>
+          </div>
+        </div>
+      )}
 
       <div className="two-column-layout">
         {/* 左侧：策略选择与指标监控 */}
@@ -292,18 +320,7 @@ function App() {
               基于所选的 <strong>策略</strong> 动态生成
             </p>
             
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
-               <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>基准金额:</span>
-               <input 
-                  type="number" 
-                  value={baseGrams} 
-                  onChange={(e) => setBaseGrams(Number(e.target.value) || 1)}
-                  min="1"
-                  style={{ width: '60px', padding: '4px 8px', border: '1px solid var(--border-color)', borderRadius: '4px', textAlign: 'center' }}
-               />
-               <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>克</span>
-            </div>
-            
+
             <div className="advice-box">
               <div className="advice-label">🎯 目标挂单买价</div>
               <div className="advice-value highlight">{advice?.targetPrice.toFixed(2)}</div>

@@ -211,10 +211,12 @@ export function calculateWeeklyDrawdown(data) {
 }
 
 /**
- * 汇总计算当前所有指标
+ * 计算所有支持的指标
  */
-export function calculateAllIndicators(data) {
-  if (!data || data.length === 0) return null;
+export function calculateAllIndicators(data, options = {}) {
+  const atrPeriod = options.atrPeriod || 14;
+
+  if (!data || data.length < 60) return null;
   
   const current = data[data.length - 1];
   const currentPrice = current.close;
@@ -229,7 +231,7 @@ export function calculateAllIndicators(data) {
   const drawdown = calculateWeeklyDrawdown(data);
   
   // 真实的周 ATR
-  const weeklyAtr = calculateWeeklyATR(data, 4);
+  const weeklyAtr = calculateWeeklyATR(data, atrPeriod);
   
   // 计算本周的基准价格 (用于历史回撤策略)
   let thisWeekMondayClose = null;
