@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { ComposedChart, Area, Line, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
-export function Chart({ data }) {
+export function Chart({ data, trades = [], showTrades = false }) {
   const [timeRange, setTimeRange] = useState('1y'); // '1w' | '1m' | '1y'
 
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return [];
     return data.map((d, index) => {
+      // Find if there is a trade on this date
+      const trade = trades.find(t => t.date === d.date);
+
       let ma20 = null;
       let ma60 = null;
       if (index >= 19) {
@@ -19,9 +22,15 @@ export function Chart({ data }) {
         for (let i = 0; i < 60; i++) sum60 += data[index - i].close;
         ma60 = sum60 / 60;
       }
-      return { ...d, ma20, ma60 };
+      return { 
+        ...d, 
+        ma20, 
+        ma60,
+        tradePrice: trade ? trade.price : null,
+        tradeCost: trade ? trade.cost : null
+      };
     });
-  }, [data]);
+  }, [data, trades]);
 
   const filteredData = useMemo(() => {
     if (!chartData || chartData.length === 0) return [];
@@ -107,6 +116,17 @@ export function Chart({ data }) {
           />
           <Line type="monotone" dataKey="ma20" stroke="#F59E0B" dot={false} strokeWidth={1.5} name="MA20" />
           <Line type="monotone" dataKey="ma60" stroke="#3B82F6" dot={false} strokeWidth={1.5} name="MA60" />
+          
+          {showTrades && (
+            <Scatter 
+              dataKey="tradePrice" 
+              fill="var(--color-down)" 
+              name="买入点" 
+              line={false} 
+              shape="circle" 
+              r={4}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
