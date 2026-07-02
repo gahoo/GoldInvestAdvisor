@@ -19,7 +19,6 @@ function App() {
   const [tradeFrequency, setTradeFrequency] = useState('weekly');
   const [showTradePoints, setShowTradePoints] = useState(true);
   const [activeTab, setActiveTab] = useState('indicators'); // 'indicators' or 'backtest'
-  const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -72,37 +71,6 @@ function App() {
 
   return (
     <div className="app-container">
-      <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1>黄金定投分析助手</h1>
-          <p className="subtitle">量化策略数据参考模型</p>
-        </div>
-        <button onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--text-secondary)' }}>
-          ⚙️
-        </button>
-      </header>
-
-      {showSettings && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '320px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ marginBottom: '20px', fontSize: '1.2rem' }}>参数设置</h2>
-            
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>基础定投克数 (g)</label>
-              <input type="number" value={baseGrams} onChange={e => setBaseGrams(Number(e.target.value) || 1)} min="0.1" step="0.1" style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
-            </div>
-
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>周 ATR 统计周期 (周)</label>
-              <input type="number" value={atrPeriod} onChange={e => setAtrPeriod(Number(e.target.value) || 1)} min="1" max="52" style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px' }}>较长的周期 (如 14) 防守性更强，较短的周期 (如 4) 策略更敏感。</div>
-            </div>
-
-            <button onClick={() => setShowSettings(false)} className="strategy-btn active" style={{ width: '100%', padding: '10px' }}>保存并关闭</button>
-          </div>
-        </div>
-      )}
-
       <div className="two-column-layout">
         {/* 左侧：策略选择与指标监控 */}
         <div className="left-panel">
@@ -210,10 +178,20 @@ function App() {
             </div>
 
             <div className={`indicator-card ${isActive('atr') ? 'active' : 'dimmed'}`}>
-              <div className="indicator-header">
+              <div className="indicator-header" style={{ alignItems: 'flex-start' }}>
                 <div className="indicator-title">
                   周波动率预估 (ATR)
                   <Tooltip content="平均真实波动幅度 (Average True Range)。衡量近期震荡剧烈程度，指导挂单安全垫。"></Tooltip>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <input 
+                    type="number" 
+                    value={atrPeriod} 
+                    onChange={e => setAtrPeriod(Number(e.target.value) || 1)} 
+                    min="1" max="52" 
+                    style={{ width: '40px', padding: '2px 4px', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem', textAlign: 'center' }} 
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>周</span>
                 </div>
               </div>
               <div className="indicator-value">{indicators.weeklyAtr.toFixed(2)}</div>
@@ -306,11 +284,17 @@ function App() {
         {/* 右侧：挂单建议 */}
         <div className="right-panel">
           <div className="card action-card">
-            <h2 style={{ fontSize: '1.25rem' }}>本周操作建议</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.85rem' }}>
-              基于所选的 <strong>策略</strong> 动态生成
-            </p>
-            
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '16px' }}>本周操作建议</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>基础定投克数 (g)</span>
+              <input 
+                type="number" 
+                value={baseGrams} 
+                onChange={e => setBaseGrams(Number(e.target.value) || 1)} 
+                min="0.1" step="0.1" 
+                style={{ width: '70px', padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', textAlign: 'right' }} 
+              />
+            </div>
 
             <div className="advice-box">
               <div className="advice-label">🎯 目标挂单买价</div>

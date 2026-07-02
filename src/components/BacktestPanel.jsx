@@ -39,6 +39,7 @@ export function BacktestPanel({
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <select value={tradeFrequency} onChange={e => setTradeFrequency(e.target.value)} style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
             <option value="weekly">每周最多一笔</option>
+            <option value="twice_weekly">每周最多两笔</option>
             <option value="biweekly">每两周一笔</option>
             <option value="monthly">每月最多一笔</option>
           </select>

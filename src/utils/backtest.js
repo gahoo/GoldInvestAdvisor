@@ -10,7 +10,7 @@ import { calculateXIRR, calculateSimpleAnnualized } from './math';
  * @param {Object} options
  * @param {string} options.returnMethod - 'xirr' | 'simple'
  * @param {string} options.buyMode - 'dynamic' | 'fixed'
- * @param {string} options.tradeFrequency - 'weekly' | 'biweekly' | 'monthly'
+ * @param {string} options.tradeFrequency - 'weekly' | 'twice_weekly' | 'biweekly' | 'monthly'
  * @param {number} options.atrPeriod - ATR 周期
  * @returns {Object} 回测结果统计
  */
@@ -36,6 +36,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
 
   // 记录上一次交易的周标识，确保满足频率限制
   let lastTradeWeek = -Infinity;
+  let currentWeekTradeCount = 0;
   let lastTradeMonth = -Infinity;
 
   // 从第60天开始，让 MA60 和 Fib 指标有足够的数据
@@ -52,6 +53,9 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     const currentMonthId = currentDateObj.getFullYear() * 12 + currentDateObj.getMonth();
 
     if (tradeFrequency === 'weekly' && currentWeekId <= lastTradeWeek) {
+      continue;
+    }
+    if (tradeFrequency === 'twice_weekly' && currentWeekId <= lastTradeWeek && currentWeekTradeCount >= 2) {
       continue;
     }
     if (tradeFrequency === 'biweekly' && currentWeekId < lastTradeWeek + 2) {
@@ -97,7 +101,12 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
           cost: cost
         });
 
-        lastTradeWeek = currentWeekId;
+        if (currentWeekId === lastTradeWeek) {
+          currentWeekTradeCount += 1;
+        } else {
+          lastTradeWeek = currentWeekId;
+          currentWeekTradeCount = 1;
+        }
         lastTradeMonth = currentMonthId;
       }
     }
