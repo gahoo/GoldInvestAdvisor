@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.claude/
+.oxlintrc.json
+AGENTS.md
+CLAUDE.md
