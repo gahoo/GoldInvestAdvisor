@@ -1,0 +1,5 @@
+name = "gold-invest-advisor"
+compatibility_date = "2024-03-20"
+pages_build_output_dir = "dist"
+
+# 将 /api/* 的请求代理到 functions/api/ 下的 serverless functions
