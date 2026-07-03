@@ -21,6 +21,22 @@ function App() {
   const [activeTab, setActiveTab] = useState('indicators'); // 'indicators' or 'backtest'
   const [error, setError] = useState(null);
 
+  const bestStrategy = useMemo(() => {
+    if (!data || data.length === 0) return null;
+    const testStrategies = ['grid', 'grid_drawdown', 'grid_fib', 'mean_reversion', 'calendar'];
+    let best = null;
+    let maxReturn = -Infinity;
+
+    testStrategies.forEach(strat => {
+      const result = runBacktest(data, strat, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod });
+      if (result && result.annualizedReturn > maxReturn) {
+        maxReturn = result.annualizedReturn;
+        best = strat;
+      }
+    });
+    return best;
+  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod]);
+
   useEffect(() => {
     fetchGoldData().then(result => {
       setData(result);
@@ -77,12 +93,24 @@ function App() {
           <div className="card">
             <h3 className="section-title">投资策略</h3>
             <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
-              <button className={`strategy-btn ${strategy === 'grid' ? 'active' : ''}`} onClick={() => setStrategy('grid')}>基础网格</button>
-              <button className={`strategy-btn ${strategy === 'grid_drawdown' ? 'active' : ''}`} onClick={() => setStrategy('grid_drawdown')}>历史典型回撤</button>
-              <button className={`strategy-btn ${strategy === 'grid_fib' ? 'active' : ''}`} onClick={() => setStrategy('grid_fib')}>动态波动 (ATR+Fib)</button>
-              <button className={`strategy-btn ${strategy === 'mean_reversion' ? 'active' : ''}`} onClick={() => setStrategy('mean_reversion')}>均值回归</button>
-              <button className={`strategy-btn ${strategy === 'calendar' ? 'active' : ''}`} onClick={() => setStrategy('calendar')}>日历效应</button>
-              <button className={`strategy-btn ${strategy === 'macro' ? 'active' : ''}`} onClick={() => setStrategy('macro')}>宏观因子</button>
+              <button className={`strategy-btn ${strategy === 'grid' ? 'active' : ''}`} onClick={() => setStrategy('grid')}>
+                基础网格 {bestStrategy === 'grid' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+              </button>
+              <button className={`strategy-btn ${strategy === 'grid_drawdown' ? 'active' : ''}`} onClick={() => setStrategy('grid_drawdown')}>
+                历史典型回撤 {bestStrategy === 'grid_drawdown' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+              </button>
+              <button className={`strategy-btn ${strategy === 'grid_fib' ? 'active' : ''}`} onClick={() => setStrategy('grid_fib')}>
+                动态波动 {bestStrategy === 'grid_fib' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+              </button>
+              <button className={`strategy-btn ${strategy === 'mean_reversion' ? 'active' : ''}`} onClick={() => setStrategy('mean_reversion')}>
+                均值回归 {bestStrategy === 'mean_reversion' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+              </button>
+              <button className={`strategy-btn ${strategy === 'calendar' ? 'active' : ''}`} onClick={() => setStrategy('calendar')}>
+                日历效应 {bestStrategy === 'calendar' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+              </button>
+              <button className={`strategy-btn ${strategy === 'macro' ? 'active' : ''}`} onClick={() => setStrategy('macro')}>
+                宏观因子
+              </button>
             </div>
             
             <div className="strategy-description" style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-light)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
@@ -284,7 +312,28 @@ function App() {
         {/* 右侧：挂单建议 */}
         <div className="right-panel">
           <div className="card action-card">
-            <h2 style={{ fontSize: '1.25rem', marginBottom: '16px' }}>本周操作建议</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '1.25rem', margin: 0 }}>本周操作建议</h2>
+              {/* 决策标签 */}
+              {advice && indicators && (
+                <div>
+                  {advice.multiplier === 0 ? (
+                    <span style={{ padding: '6px 12px', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                      ⏸️ 观望跳过
+                    </span>
+                  ) : indicators.currentPrice <= advice.targetPrice ? (
+                    <span style={{ padding: '6px 12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: 'var(--color-down)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                      ✅ 现价买入
+                    </span>
+                  ) : (
+                    <span style={{ padding: '6px 12px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#D97706', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                      ⏳ 挂单等待
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>基础定投克数 (g)</span>
               <input 
