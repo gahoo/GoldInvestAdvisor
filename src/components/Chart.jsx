@@ -38,9 +38,11 @@ export function Chart({ data, trades = [], showTrades = false }) {
     if (!chartData || chartData.length === 0) return [];
     let daysToKeep = chartData.length;
     
-    if (timeRange === '1w') daysToKeep = 5; // 一周约5个交易日
-    else if (timeRange === '1m') daysToKeep = 22; // 一月约22个交易日
-    else if (timeRange === '1y') daysToKeep = 250; // 一年约250个交易日
+    if (timeRange === '1w') daysToKeep = 5;
+    else if (timeRange === '1m') daysToKeep = 22;
+    else if (timeRange === '3m') daysToKeep = 65;
+    else if (timeRange === '6m') daysToKeep = 130;
+    else if (timeRange === '1y') daysToKeep = 250;
     
     return chartData.slice(Math.max(0, chartData.length - daysToKeep));
   }, [chartData, timeRange]);
@@ -55,9 +57,9 @@ export function Chart({ data, trades = [], showTrades = false }) {
 
   return (
     <div className="chart-container" style={{ width: '100%', height: '350px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h3 style={{ fontSize: '1rem', color: 'var(--text-secondary)' }}>价格走势</h3>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+        <h3 style={{ fontSize: '1rem', color: 'var(--text-secondary)', margin: 0 }}>价格走势</h3>
+        <div className="time-btn-group" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
           <button 
             className={`time-btn ${timeRange === '1w' ? 'active' : ''}`}
             onClick={() => setTimeRange('1w')}
@@ -69,6 +71,18 @@ export function Chart({ data, trades = [], showTrades = false }) {
             onClick={() => setTimeRange('1m')}
           >
             1月
+          </button>
+          <button 
+            className={`time-btn ${timeRange === '3m' ? 'active' : ''}`}
+            onClick={() => setTimeRange('3m')}
+          >
+            3月
+          </button>
+          <button 
+            className={`time-btn ${timeRange === '6m' ? 'active' : ''}`}
+            onClick={() => setTimeRange('6m')}
+          >
+            6月
           </button>
           <button 
             className={`time-btn ${timeRange === '1y' ? 'active' : ''}`}

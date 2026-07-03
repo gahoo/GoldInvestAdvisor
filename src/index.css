@@ -115,6 +115,13 @@ h1 {
   font-weight: 600;
 }
 
+@media (max-width: 600px) {
+  .time-btn {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+}
+
 /* Dashboard Grid */
 .dashboard-grid {
   display: grid;

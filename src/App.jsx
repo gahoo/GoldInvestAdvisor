@@ -219,10 +219,27 @@ function App() {
                 </>
               )}
             </div>
+          </div>
 
+          <div className="card" style={{ marginTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="section-title" style={{ margin: 0 }}>卖出套现配置 (全局)</h3>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
+                <input type="checkbox" checked={allowSell} onChange={e => setAllowSell(e.target.checked)} style={{ marginRight: '8px', transform: 'scale(1.2)' }} />
+                启用卖出功能
+              </label>
+            </div>
+            
             {allowSell && (
-              <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
-                <h3 className="section-title">卖出策略 (多选 / 波段)</h3>
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>卖出策略组合 (支持多选)</div>
+                  <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem' }}>
+                    卖出手续费: 
+                    <input type="number" step="0.1" value={sellFee * 100} onChange={e => setSellFee(Number(e.target.value) / 100)} style={{ width: '60px', marginLeft: '6px', marginRight: '4px', padding: '4px 6px', border: '1px solid var(--border-color)', borderRadius: '4px' }} />
+                    %
+                  </label>
+                </div>
                 <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
                   <button className={`strategy-btn ${sellStrategies.includes('rsi_scale_out') ? 'active' : ''}`} onClick={() => toggleSellStrategy('rsi_scale_out')}>
                     [压舱石] 均值回归高抛
@@ -401,10 +418,6 @@ function App() {
               setTradeFrequency={setTradeFrequency}
               showTradePoints={showTradePoints}
               setShowTradePoints={setShowTradePoints}
-              allowSell={allowSell}
-              setAllowSell={setAllowSell}
-              sellFee={sellFee}
-              setSellFee={setSellFee}
             />
           )}
         </div>
