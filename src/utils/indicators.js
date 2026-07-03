@@ -237,7 +237,8 @@ export function calculateAllIndicators(data, options = {}) {
   let thisWeekMondayClose = null;
   let lastFridayClose = null;
   
-  for (let i = data.length - 1; i >= 0; i--) {
+  const lookbackLimit = Math.max(0, data.length - 7);
+  for (let i = data.length - 1; i >= lookbackLimit; i--) {
     const d = data[i];
     // 假设这是过去一两周内寻找
     if (d.wday === 1 && !thisWeekMondayClose) {
@@ -263,6 +264,7 @@ export function calculateAllIndicators(data, options = {}) {
   return {
     currentPrice,
     referencePrice,
+    currentWday,
     ma20,
     ma60,
     atr: atr14,

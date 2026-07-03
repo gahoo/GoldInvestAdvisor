@@ -77,7 +77,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
       continue;
     }
     
-    const historySlice = data.slice(0, i + 1);
+    const historySlice = data.slice(0, i);
     const indicators = calculateAllIndicators(historySlice, { atrPeriod });
     
     if (!indicators) continue;
@@ -131,7 +131,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     if (hasSold) continue;
 
     // 2. 判定买入
-    const { targetPrice, multiplier, reason: buyReason } = evaluateStrategy(indicators, null, strategy, baseGrams);
+    const { targetPrice, multiplier, reason: buyReason } = evaluateStrategy(indicators, null, strategy, baseGrams, currentData.wday);
     
     let gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * multiplier;
     if (gramsToBuy > 0 && gramsToBuy < minTradeVolume) {

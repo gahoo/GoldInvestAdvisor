@@ -1,4 +1,4 @@
-export function evaluateStrategy(indicators, macro, strategy, baseGrams) {
+export function evaluateStrategy(indicators, macro, strategy, baseGrams, wday) {
   if (!indicators) return null;
   
   let targetPrice = indicators.currentPrice;
@@ -13,7 +13,7 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams) {
   } else if (strategy === 'grid_drawdown') {
     targetPrice = indicators.referencePrice * (1 + (indicators.drawdown || 0));
     multiplier = Math.max(0.5, Math.min(3.0, 1.0 - (indicators.bias * 10)));
-    reason = `结合回撤锚点与当前乖离率动态量化，测算精准购入倍率为 ${multiplier.toFixed(2)}x。`;
+    reason = `结合回撤锚点与当前乖离率动态量化，测算参考购入倍率为 ${multiplier.toFixed(2)}x。`;
   } else if (strategy === 'grid_fib') {
     if (indicators.currentPrice > indicators.fib?.level382) {
       targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.382);
@@ -22,7 +22,7 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams) {
     } else {
       targetPrice = indicators.currentPrice - (indicators.weeklyAtr * 0.618);
       multiplier = Math.max(1.0, Math.min(3.0, 1.2 - (indicators.bias * 15)));
-      reason = '处于趋势下方，防守挂单较深，适当放大左侧抄底的倍率倾斜。';
+      reason = '处于趋势下方，防守挂单较深，适当放大左侧参考的倍率倾斜。';
     }
   } else if (strategy === 'mean_reversion') {
     targetPrice = Math.min(indicators.fib?.level618 || indicators.currentPrice, indicators.currentPrice);
@@ -31,7 +31,7 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams) {
     reason = `RSI 为 ${indicators.rsi?.toFixed(1)}，基于 RSI 中轴偏离度映射为 ${multiplier.toFixed(2)}x 连续倍率。`;
   } else if (strategy === 'calendar') {
     targetPrice = indicators.currentPrice * 0.998;
-    const today = new Date().getDay() || 7;
+    const today = wday || (new Date().getDay() || 7);
     if (indicators.calendar?.bestBuyDay === today) {
       multiplier = 1.0;
       reason = '今天是历史统计的当周最低日，可略微打折挂单。';

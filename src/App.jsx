@@ -75,8 +75,10 @@ function App() {
 
   useEffect(() => {
     fetchGoldData().then(result => {
+      if (result.length < 60) {
+        throw new Error('历史数据不足 60 条，无法进行指标计算。');
+      }
       setData(result);
-      setIndicators(calculateAllIndicators(result, { atrPeriod }));
     }).catch(err => {
       setError(err.message);
     });
@@ -84,7 +86,13 @@ function App() {
     fetchMacroData().then(res => {
       if (res) setMacro(res);
     });
-  }, [atrPeriod]);
+  }, []);
+
+  useEffect(() => {
+    if (data.length >= 60) {
+      setIndicators(calculateAllIndicators(data, { atrPeriod }));
+    }
+  }, [data, atrPeriod]);
 
   const isActive = (cardType) => {
     switch (strategy) {
@@ -100,7 +108,7 @@ function App() {
 
   const advice = useMemo(() => {
     if (!indicators) return null;
-    const adv = evaluateStrategy(indicators, macro, strategy, baseGrams);
+    const adv = evaluateStrategy(indicators, macro, strategy, baseGrams, new Date().getDay() || 7);
     if (adv.grams > 0 && adv.grams < minTradeVolume) {
       adv.grams = 0;
       adv.multiplier = 0;
@@ -136,19 +144,19 @@ function App() {
             <h3 className="section-title">买入策略</h3>
             <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
               <button className={`strategy-btn ${strategy === 'grid' ? 'active' : ''}`} onClick={() => setStrategy('grid')}>
-                基础网格 {bestStrategy === 'grid' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                基础网格 {bestStrategy === 'grid' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
               </button>
               <button className={`strategy-btn ${strategy === 'grid_drawdown' ? 'active' : ''}`} onClick={() => setStrategy('grid_drawdown')}>
-                历史典型回撤 {bestStrategy === 'grid_drawdown' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                历史典型回撤 {bestStrategy === 'grid_drawdown' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
               </button>
               <button className={`strategy-btn ${strategy === 'grid_fib' ? 'active' : ''}`} onClick={() => setStrategy('grid_fib')}>
-                动态波动 {bestStrategy === 'grid_fib' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                动态波动 {bestStrategy === 'grid_fib' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
               </button>
               <button className={`strategy-btn ${strategy === 'mean_reversion' ? 'active' : ''}`} onClick={() => setStrategy('mean_reversion')}>
-                均值回归 {bestStrategy === 'mean_reversion' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                均值回归 {bestStrategy === 'mean_reversion' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
               </button>
               <button className={`strategy-btn ${strategy === 'calendar' ? 'active' : ''}`} onClick={() => setStrategy('calendar')}>
-                日历效应 {bestStrategy === 'calendar' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                日历效应 {bestStrategy === 'calendar' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
               </button>
               <button className={`strategy-btn ${strategy === 'macro' ? 'active' : ''}`} onClick={() => setStrategy('macro')}>
                 宏观因子
@@ -405,7 +413,7 @@ function App() {
         <div className="right-panel">
           <div className="card action-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '1.25rem', margin: 0 }}>本周操作建议</h2>
+              <h2 style={{ fontSize: '1.25rem', margin: 0 }}>本周测算参考</h2>
             {/* 决策标签 */}
             {advice && indicators && (
               <div>
@@ -413,7 +421,7 @@ function App() {
                   let sellTag = null;
                   if (allowSell && backtestResult && backtestResult.totalGrams > 0) {
                     const sellAdvice = evaluateSellStrategy(indicators, backtestResult.totalGrams, backtestResult.averageCost, sellStrategies);
-                    if (sellAdvice.shouldSell) {
+                    if (sellAdvice.shouldSell && backtestResult.totalGrams * sellAdvice.sellRatio >= minTradeVolume) {
                       sellTag = (
                         <span style={{ padding: '6px 12px', backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
                           📉 止盈卖出
@@ -432,8 +440,8 @@ function App() {
                     );
                   } else if (indicators.currentPrice <= advice.targetPrice) {
                     return (
-                      <span style={{ padding: '6px 12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: 'var(--color-down)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
-                        ✅ 现价买入
+                      <span style={{ padding: '6px 12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10B981', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                        ✅ 现价参考
                       </span>
                     );
                   } else {
@@ -471,13 +479,13 @@ function App() {
             </div>
 
             <div className="advice-box">
-              <div className="advice-label">🎯 目标挂单买价</div>
+              <div className="advice-label">🎯 测算挂单买价</div>
               <div className="advice-value highlight">{advice?.targetPrice.toFixed(2)}</div>
               <div className="advice-sub">元/克</div>
             </div>
 
             <div className="advice-box">
-              <div className="advice-label">⚖️ 建议购入克数</div>
+              <div className="advice-label">⚖️ 测算购入克数</div>
               <div className="advice-value">
                 {advice?.grams.toFixed(2)} g 
                 <span style={{ fontSize: '1rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '8px' }}>
