@@ -40,7 +40,7 @@ function TradeTable({ trades }) {
   };
 
   return (
-    <div className="card" style={{ marginTop: '24px', overflowX: 'auto' }}>
+    <div style={{ overflowX: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <h3 style={{ margin: 0 }}>回测交易明细</h3>
         <button onClick={exportCSV} style={{ padding: '6px 12px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer' }}>

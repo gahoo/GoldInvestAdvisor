@@ -7,6 +7,7 @@ import { evaluateStrategy, evaluateSellStrategy } from './utils/strategies';
 import { runBacktest } from './utils/backtest';
 import { BacktestPanel } from './components/BacktestPanel';
 import TradeTable from './components/TradeTable';
+import StrategyLeaderboard from './components/StrategyLeaderboard';
 
 function App() {
   const [data, setData] = useState([]);
@@ -24,6 +25,7 @@ function App() {
   const [sellFee, setSellFee] = useState(0.01);
   const [sellStrategies, setSellStrategies] = useState(['profit_scale_out']);
   const [minTradeVolume, setMinTradeVolume] = useState(1);
+  const [bottomTab, setBottomTab] = useState('trades'); // 'trades' | 'leaderboard'
   const [error, setError] = useState(null);
 
   const toggleSellStrategy = (strat) => {
@@ -32,21 +34,44 @@ function App() {
     );
   };
 
-  const bestStrategy = useMemo(() => {
-    if (!data || data.length === 0) return null;
-    const testStrategies = ['grid', 'grid_drawdown', 'grid_fib', 'mean_reversion', 'calendar'];
-    let best = null;
-    let maxReturn = -Infinity;
+  const strategyLeaderboardData = useMemo(() => {
+    if (!data || data.length === 0) return [];
 
-    testStrategies.forEach(strat => {
-      const result = runBacktest(data, strat, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume });
-      if (result && result.annualizedReturn > maxReturn) {
-        maxReturn = result.annualizedReturn;
-        best = strat;
-      }
+    const testBuyStrategies = ['grid', 'grid_drawdown', 'grid_fib', 'mean_reversion', 'calendar'];
+    const allSellStrats = ['rsi_scale_out', 'profit_scale_out', 'trend_break_clear'];
+    
+    // Generate power set of sell strategies
+    const powerSet = (arr) => arr.reduce((subsets, value) => subsets.concat(subsets.map(set => [value, ...set])), [[]]);
+    const sellCombinations = powerSet(allSellStrats);
+
+    const leaderboard = [];
+    testBuyStrategies.forEach(buyStrat => {
+      sellCombinations.forEach(sellStrats => {
+        const tempAllowSell = sellStrats.length > 0;
+        const result = runBacktest(data, buyStrat, baseGrams, { 
+          returnMethod, buyMode, tradeFrequency, atrPeriod, 
+          allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume 
+        });
+        
+        if (result && result.trades) { // Check if valid result
+          leaderboard.push({
+            buyStrategy: buyStrat,
+            sellStrategies: sellStrats,
+            ...result
+          });
+        }
+      });
     });
-    return best;
-  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume]);
+    return leaderboard;
+  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume]);
+
+  const bestStrategy = useMemo(() => {
+    if (!strategyLeaderboardData || strategyLeaderboardData.length === 0) return 'grid';
+    // Find best buy strategy only, matching current behavior of showing crown on buy buttons
+    const buyOnlyResults = strategyLeaderboardData.filter(r => r.sellStrategies.length === 0);
+    if (buyOnlyResults.length === 0) return 'grid';
+    return buyOnlyResults.reduce((best, curr) => curr.annualizedReturn > best.annualizedReturn ? curr : best).buyStrategy;
+  }, [strategyLeaderboardData]);
 
   useEffect(() => {
     fetchGoldData().then(result => {
@@ -481,9 +506,56 @@ function App() {
         <Chart data={data} trades={backtestResult?.trades || []} showTrades={showTradePoints} />
       </div>
 
-      {/* 交易明细表格 */}
-      {showTradePoints && activeTab === 'backtest' && backtestResult?.trades?.length > 0 && (
-        <TradeTable trades={backtestResult.trades} />
+      {/* 交易明细表格与策略排行榜 (只在回测模式下显示) */}
+      {activeTab === 'backtest' && backtestResult?.trades?.length > 0 && (
+        <div className="card" style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+            <button 
+              onClick={() => setBottomTab('trades')}
+              style={{ 
+                background: 'none', border: 'none', padding: '8px 4px', 
+                cursor: 'pointer', fontWeight: bottomTab === 'trades' ? 'bold' : 'normal',
+                color: bottomTab === 'trades' ? 'var(--accent-gold)' : 'var(--text-secondary)',
+                borderBottom: bottomTab === 'trades' ? '2px solid var(--accent-gold)' : '2px solid transparent',
+                marginBottom: '-9px'
+              }}
+            >
+              📑 回测交易明细
+            </button>
+            <button 
+              onClick={() => setBottomTab('leaderboard')}
+              style={{ 
+                background: 'none', border: 'none', padding: '8px 4px', 
+                cursor: 'pointer', fontWeight: bottomTab === 'leaderboard' ? 'bold' : 'normal',
+                color: bottomTab === 'leaderboard' ? 'var(--accent-gold)' : 'var(--text-secondary)',
+                borderBottom: bottomTab === 'leaderboard' ? '2px solid var(--accent-gold)' : '2px solid transparent',
+                marginBottom: '-9px'
+              }}
+            >
+              🏆 策略排行榜
+            </button>
+          </div>
+          
+          {bottomTab === 'trades' ? (
+            showTradePoints && <TradeTable trades={backtestResult.trades} />
+          ) : (
+            <StrategyLeaderboard 
+              data={strategyLeaderboardData} 
+              currentStrategy={strategy}
+              currentSellStrategies={allowSell ? sellStrategies : []}
+              onApply={(buyStrat, sellStrats) => {
+                setStrategy(buyStrat);
+                if (sellStrats.length > 0) {
+                  setAllowSell(true);
+                  setSellStrategies(sellStrats);
+                } else {
+                  setAllowSell(false);
+                  setSellStrategies([]);
+                }
+              }}
+            />
+          )}
+        </div>
       )}
     </div>
   );

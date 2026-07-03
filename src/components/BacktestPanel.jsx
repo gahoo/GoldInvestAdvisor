@@ -74,30 +74,47 @@ export function BacktestPanel({
       <div className="dashboard-grid">
         <div className="indicator-card active">
           <div className="indicator-header">
-            <div className="indicator-title">累计投入资金</div>
+            <div className="indicator-title">
+              最大资金占用
+              <Tooltip content="由于存在卖出操作回收本金，这是历史回测中您账户最多需要准备的资金（Max Capital Deployed）。" />
+            </div>
           </div>
           <div className="indicator-value">¥ {result.totalInvested.toFixed(2)}</div>
-        </div>
-
-        <div className="indicator-card active">
-          <div className="indicator-header">
-            <div className="indicator-title">持有黄金总量</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            累计买入流水: ¥ {result.totalBuyAmount?.toFixed(2) || '0.00'}
           </div>
-          <div className="indicator-value">{result.totalGrams.toFixed(2)} g</div>
         </div>
 
         <div className="indicator-card active">
           <div className="indicator-header">
-            <div className="indicator-title">期末总市值</div>
+            <div className="indicator-title">期末持仓市值</div>
           </div>
           <div className="indicator-value">¥ {result.finalValue.toFixed(2)}</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>当前剩余持仓: {result.totalGrams.toFixed(2)} g</div>
+        </div>
+
+        <div className="indicator-card active">
+          <div className="indicator-header">
+            <div className="indicator-title">
+              总净利润
+              <Tooltip content="总净利润 = 现存底仓的浮盈 + 已经落袋的卖出利润。" />
+            </div>
+          </div>
+          <div className={`indicator-value ${result.netProfit >= 0 ? 'up' : 'down'}`}>
+            ¥ {result.netProfit.toFixed(2)}
+          </div>
+          {allowSell && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              含已落袋: ¥ {result.realizedProfit.toFixed(2)}
+            </div>
+          )}
         </div>
 
         <div className="indicator-card active">
           <div className="indicator-header">
             <div className="indicator-title">
               绝对收益率
-              <Tooltip content="(期末市值 - 累计投入) / 累计投入" />
+              <Tooltip content="总净利润 / 最大资金占用" />
             </div>
           </div>
           <div className={`indicator-value ${result.absoluteReturn >= 0 ? 'up' : 'down'}`}>
@@ -116,12 +133,16 @@ export function BacktestPanel({
             {(result.annualizedReturn * 100).toFixed(2)}%
           </div>
         </div>
-        
+
         <div className="indicator-card active">
           <div className="indicator-header">
-            <div className="indicator-title">触发成交次数</div>
+            <div className="indicator-title">交易统计</div>
           </div>
           <div className="indicator-value">{result.tradeCount} 笔</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            买入: {result.buyCount} 笔
+            {allowSell && ` | 卖出: ${result.sellCount} 笔 (胜率 ${(result.winRate * 100).toFixed(1)}%)`}
+          </div>
         </div>
       </div>
     </div>
