@@ -3,9 +3,10 @@ import { fetchGoldData, fetchMacroData } from './utils/api';
 import { calculateAllIndicators } from './utils/indicators';
 import { Tooltip } from './components/Tooltip';
 import { Chart } from './components/Chart';
-import { evaluateStrategy } from './utils/strategies';
+import { evaluateStrategy, evaluateSellStrategy } from './utils/strategies';
 import { runBacktest } from './utils/backtest';
 import { BacktestPanel } from './components/BacktestPanel';
+import TradeTable from './components/TradeTable';
 
 function App() {
   const [data, setData] = useState([]);
@@ -19,7 +20,17 @@ function App() {
   const [tradeFrequency, setTradeFrequency] = useState('weekly');
   const [showTradePoints, setShowTradePoints] = useState(true);
   const [activeTab, setActiveTab] = useState('indicators'); // 'indicators' or 'backtest'
+  const [allowSell, setAllowSell] = useState(false);
+  const [sellFee, setSellFee] = useState(0.01);
+  const [sellStrategies, setSellStrategies] = useState(['profit_scale_out']);
+  const [minTradeVolume, setMinTradeVolume] = useState(1);
   const [error, setError] = useState(null);
+
+  const toggleSellStrategy = (strat) => {
+    setSellStrategies(prev => 
+      prev.includes(strat) ? prev.filter(x => x !== strat) : [...prev, strat]
+    );
+  };
 
   const bestStrategy = useMemo(() => {
     if (!data || data.length === 0) return null;
@@ -28,14 +39,14 @@ function App() {
     let maxReturn = -Infinity;
 
     testStrategies.forEach(strat => {
-      const result = runBacktest(data, strat, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod });
+      const result = runBacktest(data, strat, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume });
       if (result && result.annualizedReturn > maxReturn) {
         maxReturn = result.annualizedReturn;
         best = strat;
       }
     });
     return best;
-  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod]);
+  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume]);
 
   useEffect(() => {
     fetchGoldData().then(result => {
@@ -64,12 +75,18 @@ function App() {
 
   const advice = useMemo(() => {
     if (!indicators) return null;
-    return evaluateStrategy(indicators, macro, strategy, baseGrams);
-  }, [indicators, macro, baseGrams, strategy]);
+    const adv = evaluateStrategy(indicators, macro, strategy, baseGrams);
+    if (adv.grams > 0 && adv.grams < minTradeVolume) {
+      adv.grams = 0;
+      adv.multiplier = 0;
+      adv.reason += '（未达到最低买卖量，跳过）';
+    }
+    return adv;
+  }, [indicators, macro, baseGrams, strategy, minTradeVolume]);
 
   const backtestResult = useMemo(() => {
-    return runBacktest(data, strategy, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod });
-  }, [data, strategy, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod]);
+    return runBacktest(data, strategy, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume });
+  }, [data, strategy, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume]);
 
   if (error) {
     return (
@@ -91,7 +108,7 @@ function App() {
         {/* 左侧：策略选择与指标监控 */}
         <div className="left-panel">
           <div className="card">
-            <h3 className="section-title">投资策略</h3>
+            <h3 className="section-title">买入策略</h3>
             <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
               <button className={`strategy-btn ${strategy === 'grid' ? 'active' : ''}`} onClick={() => setStrategy('grid')}>
                 基础网格 {bestStrategy === 'grid' && <span title="回测收益最高" style={{marginLeft: '4px'}}>👑</span>}
@@ -169,6 +186,52 @@ function App() {
                 </>
               )}
             </div>
+
+            {allowSell && (
+              <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                <h3 className="section-title">卖出策略 (多选 / 波段)</h3>
+                <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
+                  <button className={`strategy-btn ${sellStrategies.includes('rsi_scale_out') ? 'active' : ''}`} onClick={() => toggleSellStrategy('rsi_scale_out')}>
+                    [压舱石] 均值回归高抛
+                  </button>
+                  <button className={`strategy-btn ${sellStrategies.includes('profit_scale_out') ? 'active' : ''}`} onClick={() => toggleSellStrategy('profit_scale_out')}>
+                    [压舱石] 目标收益减仓
+                  </button>
+                  <button className={`strategy-btn ${sellStrategies.includes('trend_break_clear') ? 'active' : ''}`} onClick={() => toggleSellStrategy('trend_break_clear')}>
+                    [防守] 破位清仓止损
+                  </button>
+                </div>
+                
+                {sellStrategies.length > 0 && (
+                  <div className="strategy-description" style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-light)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    {sellStrategies.includes('rsi_scale_out') && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>📉 [压舱石] 均值回归高抛</div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                          当 RSI 大于 70（超买）且当前处于浮盈状态时，卖出 30% 持仓锁定利润，保留 70% 作为压舱石底仓。
+                        </div>
+                      </div>
+                    )}
+                    {sellStrategies.includes('profit_scale_out') && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>📉 [压舱石] 目标收益减仓</div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                          当浮盈比例超过 10% 时，卖出 50% 持仓，收回大部分本金，剩余 50% 继续跟随趋势。
+                        </div>
+                      </div>
+                    )}
+                    {sellStrategies.includes('trend_break_clear') && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>🛡️ [防守] 破位清仓止损</div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                          当价格跌破 MA60 中期均线，且当前仍处于浮盈状态时，清仓（卖出 100%）以规避长期下跌风险。
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '16px', marginTop: '24px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
@@ -305,6 +368,10 @@ function App() {
               setTradeFrequency={setTradeFrequency}
               showTradePoints={showTradePoints}
               setShowTradePoints={setShowTradePoints}
+              allowSell={allowSell}
+              setAllowSell={setAllowSell}
+              sellFee={sellFee}
+              setSellFee={setSellFee}
             />
           )}
         </div>
@@ -314,33 +381,66 @@ function App() {
           <div className="card action-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '1.25rem', margin: 0 }}>本周操作建议</h2>
-              {/* 决策标签 */}
-              {advice && indicators && (
-                <div>
-                  {advice.multiplier === 0 ? (
-                    <span style={{ padding: '6px 12px', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
-                      ⏸️ 观望跳过
-                    </span>
-                  ) : indicators.currentPrice <= advice.targetPrice ? (
-                    <span style={{ padding: '6px 12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: 'var(--color-down)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
-                      ✅ 现价买入
-                    </span>
-                  ) : (
-                    <span style={{ padding: '6px 12px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#D97706', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
-                      ⏳ 挂单等待
-                    </span>
-                  )}
-                </div>
-              )}
+            {/* 决策标签 */}
+            {advice && indicators && (
+              <div>
+                {(() => {
+                  let sellTag = null;
+                  if (allowSell && backtestResult && backtestResult.totalGrams > 0) {
+                    const sellAdvice = evaluateSellStrategy(indicators, backtestResult.totalGrams, backtestResult.averageCost, sellStrategies);
+                    if (sellAdvice.shouldSell) {
+                      sellTag = (
+                        <span style={{ padding: '6px 12px', backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                          📉 止盈卖出
+                        </span>
+                      );
+                    }
+                  }
+                  
+                  if (sellTag) return sellTag;
+                  
+                  if (advice.multiplier === 0) {
+                    return (
+                      <span style={{ padding: '6px 12px', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                        ⏸️ 观望跳过
+                      </span>
+                    );
+                  } else if (indicators.currentPrice <= advice.targetPrice) {
+                    return (
+                      <span style={{ padding: '6px 12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: 'var(--color-down)', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                        ✅ 现价买入
+                      </span>
+                    );
+                  } else {
+                    return (
+                      <span style={{ padding: '6px 12px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#D97706', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 'bold' }}>
+                        ⏳ 挂单等待
+                      </span>
+                    );
+                  }
+                })()}
+              </div>
+            )}
             </div>
             
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>基础定投克数 (g)</span>
               <input 
                 type="number" 
                 value={baseGrams} 
                 onChange={e => setBaseGrams(Number(e.target.value) || 1)} 
                 min="0.1" step="0.1" 
+                style={{ width: '70px', padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', textAlign: 'right' }} 
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>最低买卖量限制 (g)</span>
+              <input 
+                type="number" 
+                value={minTradeVolume} 
+                onChange={e => setMinTradeVolume(Number(e.target.value) || 0)} 
+                min="0" step="0.1" 
                 style={{ width: '70px', padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', textAlign: 'right' }} 
               />
             </div>
@@ -380,6 +480,11 @@ function App() {
       <div className="card" style={{ marginTop: '24px' }}>
         <Chart data={data} trades={backtestResult?.trades || []} showTrades={showTradePoints} />
       </div>
+
+      {/* 交易明细表格 */}
+      {showTradePoints && activeTab === 'backtest' && backtestResult?.trades?.length > 0 && (
+        <TradeTable trades={backtestResult.trades} />
+      )}
     </div>
   );
 }

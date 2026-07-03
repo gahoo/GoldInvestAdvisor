@@ -6,7 +6,9 @@ export function BacktestPanel({
   returnMethod, setReturnMethod,
   buyMode, setBuyMode,
   tradeFrequency, setTradeFrequency,
-  showTradePoints, setShowTradePoints
+  showTradePoints, setShowTradePoints,
+  allowSell, setAllowSell,
+  sellFee, setSellFee
 }) {
   if (strategy === 'macro') {
     return (
@@ -36,7 +38,7 @@ export function BacktestPanel({
           </p>
         </div>
         
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={tradeFrequency} onChange={e => setTradeFrequency(e.target.value)} style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
             <option value="weekly">每周最多一笔</option>
             <option value="twice_weekly">每周最多两笔</option>
@@ -52,8 +54,19 @@ export function BacktestPanel({
             <option value="simple">简单年化</option>
           </select>
           <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={allowSell} onChange={e => setAllowSell(e.target.checked)} style={{ marginRight: '6px' }} />
+            允许卖出(波段)
+          </label>
+          {allowSell && (
+            <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              手续费: 
+              <input type="number" step="0.1" value={sellFee * 100} onChange={e => setSellFee(Number(e.target.value) / 100)} style={{ width: '45px', marginLeft: '4px', marginRight: '2px', padding: '2px 4px', border: '1px solid var(--border-color)', borderRadius: '4px' }} />
+              %
+            </label>
+          )}
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer', marginLeft: 'auto' }}>
             <input type="checkbox" checked={showTradePoints} onChange={e => setShowTradePoints(e.target.checked)} style={{ marginRight: '6px' }} />
-            图表显示买点
+            图表显示买卖点
           </label>
         </div>
       </div>

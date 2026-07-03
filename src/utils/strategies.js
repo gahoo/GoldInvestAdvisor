@@ -63,3 +63,44 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams) {
 
   return { targetPrice, grams, multiplier, reason };
 }
+
+export function evaluateSellStrategy(indicators, currentHoldings, averageCost, activeSellStrategies) {
+  if (!indicators || currentHoldings <= 0 || !activeSellStrategies || activeSellStrategies.length === 0) {
+    return { shouldSell: false, sellRatio: 0, reason: '' };
+  }
+
+  const pnlRatio = averageCost > 0 ? (indicators.currentPrice - averageCost) / averageCost : 0;
+  let maxSellRatio = 0;
+  let reasons = [];
+
+  if (activeSellStrategies.includes('rsi_scale_out')) {
+    if (indicators.rsi > 70 && pnlRatio > 0) {
+      maxSellRatio = Math.max(maxSellRatio, 0.3);
+      reasons.push('RSI超买且有浮盈，触发均值回归高抛，卖出30%留底仓');
+    }
+  }
+
+  if (activeSellStrategies.includes('profit_scale_out')) {
+    if (pnlRatio > 0.10) { // 10% 目标
+      maxSellRatio = Math.max(maxSellRatio, 0.5);
+      reasons.push('浮盈超过10%，触发目标收益减仓，卖出50%锁定利润');
+    }
+  }
+
+  if (activeSellStrategies.includes('trend_break_clear')) {
+    if (indicators.ma60 && indicators.currentPrice < indicators.ma60 && pnlRatio > 0) {
+      maxSellRatio = Math.max(maxSellRatio, 1.0);
+      reasons.push('跌破MA60中期趋势线且有浮盈，触发防守性清仓止盈');
+    }
+  }
+
+  if (maxSellRatio > 0) {
+    return {
+      shouldSell: true,
+      sellRatio: maxSellRatio,
+      reason: reasons.join('；')
+    };
+  }
+
+  return { shouldSell: false, sellRatio: 0, reason: '' };
+}

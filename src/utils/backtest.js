@@ -1,5 +1,5 @@
 import { calculateAllIndicators } from './indicators';
-import { evaluateStrategy } from './strategies';
+import { evaluateStrategy, evaluateSellStrategy } from './strategies';
 import { calculateXIRR, calculateSimpleAnnualized } from './math';
 
 /**
@@ -19,7 +19,11 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     returnMethod = 'xirr',
     buyMode = 'dynamic',
     tradeFrequency = 'weekly',
-    atrPeriod = 14
+    atrPeriod = 14,
+    allowSell = false,
+    sellFee = 0.01,
+    sellStrategies = [],
+    minTradeVolume = 0
   } = options;
 
   if (!data || data.length < 60) return null;
@@ -29,8 +33,12 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     return null;
   }
 
-  let totalInvested = 0;
   let totalGrams = 0;
+  let totalCostBasis = 0;
+  let averageCost = 0;
+  let realizedProfit = 0;
+  let maxCapitalDeployed = 0; // Used for simple return calculation
+  let currentCapitalDeployed = 0;
   const cashFlows = [];
   const trades = [];
 
@@ -65,40 +73,97 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
       continue;
     }
     
-    // 截取到当天的历史数据来计算指标
     const historySlice = data.slice(0, i + 1);
     const indicators = calculateAllIndicators(historySlice, { atrPeriod });
     
     if (!indicators) continue;
 
-    const { targetPrice, multiplier } = evaluateStrategy(indicators, null, strategy, baseGrams);
+    // 1. 优先判定卖出 (如果开启)
+    let hasSold = false;
+    if (allowSell && totalGrams >= 0.01) {
+      const sellAdvice = evaluateSellStrategy(indicators, totalGrams, averageCost, sellStrategies);
+      if (sellAdvice.shouldSell) {
+        const sellGrams = totalGrams * sellAdvice.sellRatio;
+        
+        if (sellGrams >= minTradeVolume) {
+          const sellPrice = currentData.close; // 简化处理：触发日收盘价卖出，或第二天开盘。这里用当日收盘价。
+          const grossRevenue = sellPrice * sellGrams;
+          const feeAmount = grossRevenue * sellFee;
+        const netRevenue = grossRevenue - feeAmount;
+
+        const costOfSoldGrams = averageCost * sellGrams;
+        const profit = netRevenue - costOfSoldGrams;
+        const profitRatio = costOfSoldGrams > 0 ? profit / costOfSoldGrams : 0;
+
+        realizedProfit += profit;
+        totalGrams -= sellGrams;
+        totalCostBasis -= costOfSoldGrams;
+        averageCost = totalGrams > 0 ? totalCostBasis / totalGrams : 0;
+        
+        currentCapitalDeployed -= netRevenue;
+        
+        const date = new Date(currentData.date);
+        cashFlows.push({ date, amount: netRevenue }); // 现金流入
+
+        trades.push({
+          date: currentData.date,
+          type: 'sell',
+          price: sellPrice,
+          grams: sellGrams,
+          fee: feeAmount,
+          netRevenue: netRevenue,
+          profit: profit,
+          profitRatio: profitRatio,
+          holdings: totalGrams,
+          reason: sellAdvice.reason
+        });
+        hasSold = true;
+        }
+      }
+    }
+
+    // 如果今天卖出了，就不在同一天买入（防止冲突，简化逻辑）
+    if (hasSold) continue;
+
+    // 2. 判定买入
+    const { targetPrice, multiplier, reason: buyReason } = evaluateStrategy(indicators, null, strategy, baseGrams);
     
-    const gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * multiplier;
+    let gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * multiplier;
+    if (gramsToBuy > 0 && gramsToBuy < minTradeVolume) {
+      gramsToBuy = 0; // 不满足最低交易量，跳过
+    }
 
     if (gramsToBuy > 0) {
       // 撮合逻辑
       let executionPrice = null;
       if (currentData.open <= targetPrice) {
-        // 大幅低开，按开盘价成交
         executionPrice = currentData.open;
       } else if (currentData.low <= targetPrice) {
-        // 盘中触及，按挂单价成交
         executionPrice = targetPrice;
       }
 
       if (executionPrice !== null) {
         const cost = executionPrice * gramsToBuy;
-        totalInvested += cost;
         totalGrams += gramsToBuy;
+        totalCostBasis += cost;
+        averageCost = totalCostBasis / totalGrams;
+        
+        currentCapitalDeployed += cost;
+        if (currentCapitalDeployed > maxCapitalDeployed) {
+          maxCapitalDeployed = currentCapitalDeployed;
+        }
         
         const date = new Date(currentData.date);
-        cashFlows.push({ date, amount: -cost }); // 现金流出（买入）
+        cashFlows.push({ date, amount: -cost }); // 现金流出
         
         trades.push({
           date: currentData.date,
+          type: 'buy',
           price: executionPrice,
           grams: gramsToBuy,
-          cost: cost
+          cost: cost,
+          holdings: totalGrams,
+          reason: buyReason
         });
 
         if (currentWeekId === lastTradeWeek) {
@@ -114,7 +179,9 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
 
   if (trades.length === 0) {
     return {
-      totalInvested: 0,
+      maxCapitalDeployed: 0,
+      totalCostBasis: 0,
+      averageCost: 0,
       totalGrams: 0,
       finalValue: 0,
       absoluteReturn: 0,
@@ -130,22 +197,29 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   const finalValue = totalGrams * finalPrice;
   
   // 期末作为最后一笔正现金流
-  cashFlows.push({ date: finalDate, amount: finalValue });
+  if (totalGrams > 0) {
+    cashFlows.push({ date: finalDate, amount: finalValue });
+  }
 
   const startDate = new Date(data[startIndex].date);
   const totalDays = (finalDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
 
-  const absoluteReturn = (finalValue - totalInvested) / totalInvested;
+  // For trading strategies, simple return is (finalValue + realizedProfit) / maxCapitalDeployed - 1
+  // Or simply net profit / max capital deployed.
+  const netProfit = (finalValue - totalCostBasis) + realizedProfit;
+  const absoluteReturn = maxCapitalDeployed > 0 ? netProfit / maxCapitalDeployed : 0;
   
   let annualizedReturn = 0;
   if (returnMethod === 'xirr') {
     annualizedReturn = calculateXIRR(cashFlows) || 0;
   } else {
-    annualizedReturn = calculateSimpleAnnualized(totalInvested, finalValue, totalDays);
+    annualizedReturn = calculateSimpleAnnualized(maxCapitalDeployed, maxCapitalDeployed + netProfit, totalDays);
   }
 
   return {
-    totalInvested,
+    totalInvested: maxCapitalDeployed, // Using maxCapitalDeployed for UI compatibility
+    totalCostBasis,
+    averageCost,
     totalGrams,
     finalValue,
     absoluteReturn,

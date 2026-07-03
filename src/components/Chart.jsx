@@ -26,8 +26,10 @@ export function Chart({ data, trades = [], showTrades = false }) {
         ...d, 
         ma20, 
         ma60,
-        tradePrice: trade ? trade.price : null,
-        tradeCost: trade ? trade.cost : null
+        buyPrice: trade && (trade.type === 'buy' || !trade.type) ? trade.price : null,
+        sellPrice: trade && trade.type === 'sell' ? trade.price : null,
+        buyGrams: trade && (trade.type === 'buy' || !trade.type) ? trade.grams : null,
+        sellGrams: trade && trade.type === 'sell' ? trade.grams : null
       };
     });
   }, [data, trades]);
@@ -95,7 +97,11 @@ export function Chart({ data, trades = [], showTrades = false }) {
           <RechartsTooltip 
             contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-lg)' }}
             labelStyle={{ color: 'var(--text-secondary)', marginBottom: '8px' }}
-            formatter={(value, name) => [typeof value === 'number' ? value.toFixed(2) : value, name]}
+            formatter={(value, name, props) => {
+              if (name === '买入点') return [`${value.toFixed(2)} (量: ${props.payload.buyGrams?.toFixed(2)}g)`, name];
+              if (name === '卖出点') return [`${value.toFixed(2)} (量: ${props.payload.sellGrams?.toFixed(2)}g)`, name];
+              return [typeof value === 'number' ? value.toFixed(2) : value, name];
+            }}
           />
           
           <defs>
@@ -118,14 +124,24 @@ export function Chart({ data, trades = [], showTrades = false }) {
           <Line type="monotone" dataKey="ma60" stroke="#3B82F6" dot={false} strokeWidth={1.5} name="MA60" />
           
           {showTrades && (
-            <Scatter 
-              dataKey="tradePrice" 
-              fill="var(--color-down)" 
-              name="买入点" 
-              line={false} 
-              shape="circle" 
-              r={4}
-            />
+            <>
+              <Scatter 
+                dataKey="buyPrice" 
+                fill="var(--color-down)" 
+                name="买入点" 
+                line={false} 
+                shape="circle" 
+                r={4}
+              />
+              <Scatter 
+                dataKey="sellPrice" 
+                fill="#EF4444" 
+                name="卖出点" 
+                line={false} 
+                shape="triangle" 
+                r={5}
+              />
+            </>
           )}
         </ComposedChart>
       </ResponsiveContainer>
