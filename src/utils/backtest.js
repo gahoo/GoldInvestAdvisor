@@ -43,10 +43,10 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   const cashFlows = [];
   const trades = [];
 
-  // 记录上一次交易的周标识，确保满足频率限制
-  let lastTradeWeek = -Infinity;
-  let currentWeekTradeCount = 0;
-  let lastTradeMonth = -Infinity;
+  // 记录上一次生成买入信号的周/月标识，确保满足频率限制
+  let lastSignalWeek = -Infinity;
+  let currentWeekSignalCount = 0;
+  let lastSignalMonth = -Infinity;
 
   // 从第60天开始，让 MA60 和 Fib 指标有足够的数据
   const startIndex = 60;
@@ -60,19 +60,6 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     // +4 是因为 1970-01-01 是周四，调整偏移量使得周一为每周起始
     const currentWeekId = Math.floor((Math.floor(currentDateObj.getTime() / 86400000) + 3) / 7);
     const currentMonthId = currentDateObj.getFullYear() * 12 + currentDateObj.getMonth();
-
-    if (tradeFrequency === 'weekly' && currentWeekId <= lastTradeWeek) {
-      continue;
-    }
-    if (tradeFrequency === 'twice_weekly' && currentWeekId <= lastTradeWeek && currentWeekTradeCount >= 2) {
-      continue;
-    }
-    if (tradeFrequency === 'biweekly' && currentWeekId < lastTradeWeek + 2) {
-      continue;
-    }
-    if (tradeFrequency === 'monthly' && currentMonthId <= lastTradeMonth) {
-      continue;
-    }
     
     const historySlice = data.slice(0, i);
     const indicators = calculateAllIndicators(historySlice, { atrPeriod });
@@ -87,7 +74,8 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
         const sellGrams = totalGrams * sellAdvice.sellRatio;
         
         if (sellGrams >= minTradeVolume) {
-          const sellPrice = currentData.close; // 简化处理：触发日收盘价卖出，或第二天开盘。这里用当日收盘价。
+          // 明确假设：在收到前一日收盘后的卖出信号后，于次日（即 currentData 当日）收盘时执行卖出。
+          const sellPrice = currentData.close; 
           const grossRevenue = sellPrice * sellGrams;
           const feeAmount = grossRevenue * sellFee;
         const netRevenue = grossRevenue - feeAmount;
@@ -102,7 +90,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
         totalCostBasis -= costOfSoldGrams;
         averageCost = totalGrams > 0 ? totalCostBasis / totalGrams : 0;
         
-        currentCapitalDeployed -= netRevenue;
+        currentCapitalDeployed -= costOfSoldGrams; // 按成本核减，更客观反映资金占用
         
         const date = new Date(currentData.date);
         cashFlows.push({ date, amount: netRevenue }); // 现金流入
@@ -128,11 +116,35 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     if (hasSold) continue;
 
     // 2. 判定买入
-    const { targetPrice, multiplier, reason: buyReason } = evaluateStrategy(indicators, currentData.macro || null, strategy, baseGrams, currentData.wday);
-    
-    let gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * multiplier;
-    if (gramsToBuy > 0 && gramsToBuy < minTradeVolume) {
-      gramsToBuy = 0; // 不满足最低交易量，跳过
+    let canGenerateSignal = true;
+    if (tradeFrequency === 'weekly' && currentWeekId <= lastSignalWeek) canGenerateSignal = false;
+    if (tradeFrequency === 'twice_weekly' && currentWeekId <= lastSignalWeek && currentWeekSignalCount >= 2) canGenerateSignal = false;
+    if (tradeFrequency === 'biweekly' && currentWeekId < lastSignalWeek + 2) canGenerateSignal = false;
+    if (tradeFrequency === 'monthly' && currentMonthId <= lastSignalMonth) canGenerateSignal = false;
+
+    let gramsToBuy = 0;
+    let targetPrice = null;
+    let buyReason = '';
+
+    if (canGenerateSignal) {
+      const evaluation = evaluateStrategy(indicators, currentData.macro || null, strategy, baseGrams, currentData.wday);
+      targetPrice = evaluation.targetPrice;
+      buyReason = evaluation.reason;
+      
+      gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * evaluation.multiplier;
+      if (gramsToBuy > 0 && gramsToBuy < minTradeVolume) {
+        gramsToBuy = 0; // 不满足最低交易量，跳过
+      }
+
+      if (gramsToBuy > 0) {
+        if (currentWeekId === lastSignalWeek) {
+          currentWeekSignalCount += 1;
+        } else {
+          lastSignalWeek = currentWeekId;
+          currentWeekSignalCount = 1;
+        }
+        lastSignalMonth = currentMonthId;
+      }
     }
 
     if (gramsToBuy > 0) {
@@ -168,14 +180,6 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
           holdings: totalGrams,
           reason: buyReason
         });
-
-        if (currentWeekId === lastTradeWeek) {
-          currentWeekTradeCount += 1;
-        } else {
-          lastTradeWeek = currentWeekId;
-          currentWeekTradeCount = 1;
-        }
-        lastTradeMonth = currentMonthId;
       }
     }
 
@@ -234,7 +238,8 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   
   let annualizedReturn = 0;
   if (returnMethod === 'xirr') {
-    annualizedReturn = calculateXIRR(cashFlows) || 0;
+    const xirrResult = calculateXIRR(cashFlows);
+    annualizedReturn = xirrResult === null ? null : xirrResult;
   } else {
     annualizedReturn = calculateSimpleAnnualized(maxCapitalDeployed, maxCapitalDeployed + netProfit, totalDays);
   }

@@ -5,8 +5,9 @@ export async function onRequest() {
   // 生成过去 365 天的日期字符串，例如: 2024-01-01;2024-01-02;...
   const dates = [];
   const now = new Date();
+  const beijingTime = new Date(now.getTime() + 8 * 60 * 60 * 1000); // 补偿 UTC 时差
   for (let i = 0; i < 365; i++) {
-    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    const d = new Date(beijingTime.getTime() - i * 24 * 60 * 60 * 1000);
     dates.push(d.toISOString().split('T')[0]);
   }
   const dateRange = dates.join(';') + ';';
@@ -18,6 +19,10 @@ export async function onRequest() {
   
   try {
     const response = await fetch(targetUrl, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Upstream returned ${response.status}`);
+    }
+    
     let text = await response.text();
     
     // Clean up dirty JSON (replace single quotes with double quotes)
@@ -26,6 +31,10 @@ export async function onRequest() {
     // Optional: Extract just the fieldList we need
     const data = JSON.parse(text);
     const fieldList = data.response?.fieldList || [];
+    
+    if (!fieldList || fieldList.length === 0) {
+      throw new Error('Upstream returned empty data');
+    }
     
     return new Response(JSON.stringify({ success: true, data: fieldList }), {
       headers: {

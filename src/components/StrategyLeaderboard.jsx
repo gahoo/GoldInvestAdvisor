@@ -80,7 +80,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
           const sName = getSellStrategyName(s);
           return sName.includes(sellFilter) || s.includes(sellFilter);
         });
-        if (!hasMatch && row.sellStrategies.length > 0) return false;
+        if (!hasMatch) return false;
       }
     }
 
@@ -124,6 +124,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
   };
 
   const formatDisplayValue = (field, val) => {
+    if (val === null) return '计算失败';
     if (['annualizedReturn', 'absoluteReturn', 'maxDrawdown'].includes(field)) return (val * 100).toFixed(2) + '%';
     if (field === 'winRate') return (val * 100).toFixed(1) + '%';
     if (['netProfit', 'realizedProfit', 'finalValue', 'totalInvested'].includes(field)) return '¥' + val.toFixed(2);
@@ -322,7 +323,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.85rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>年化收益</span>
-                      <span style={{ fontWeight: 'bold', color: row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{formatDisplayValue('annualizedReturn', row.annualizedReturn)}</span>
+                      <span style={{ fontWeight: 'bold', color: row.annualizedReturn === null ? 'var(--text-secondary)' : (row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)') }}>{formatDisplayValue('annualizedReturn', row.annualizedReturn)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>最大回撤</span>
@@ -469,7 +470,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)', textAlign: 'right' }}>
+                    <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.annualizedReturn === null ? 'var(--text-secondary)' : (row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
                       {formatDisplayValue('annualizedReturn', row.annualizedReturn)}
                     </td>
                     <td style={{ padding: '12px 8px', textAlign: 'right', color: row.absoluteReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>

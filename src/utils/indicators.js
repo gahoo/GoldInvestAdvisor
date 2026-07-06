@@ -172,17 +172,21 @@ export function calculateCalendarEffect(data) {
 }
 
 /**
- * 计算历史周内最大回撤预估
- * 取历史所有周的 (周低点 - 周一收盘) / 周一收盘 的中位数
+ * 计算历史典型周内回撤预估
+ * 取过去 52 周的 (周低点 - 周一收盘) / 周一收盘 的中位数
  */
 export function calculateWeeklyDrawdown(data) {
   if (!data || data.length < 10) return 0;
+  
+  // 仅取过去 52 周（约 260 个交易日）的数据计算回撤
+  const slice = data.slice(Math.max(0, data.length - 260));
+  
   const drawdowns = [];
   let currentMondayClose = null;
   let currentWeekLow = Infinity;
   
-  for (let i = 0; i < data.length; i++) {
-    const d = data[i];
+  for (let i = 0; i < slice.length; i++) {
+    const d = slice[i];
     
     // 假设 wday=1 是周一
     if (d.wday === 1) {
@@ -244,7 +248,8 @@ export function calculateAllIndicators(data, options = {}) {
     if (d.wday === 1 && !thisWeekMondayClose) {
       thisWeekMondayClose = d.close;
     }
-    if (d.wday === 5 && !lastFridayClose && thisWeekMondayClose) { // 必须是在本周一之前的周五
+    // 只要找到最近的周五收盘价即可，不需要必须在本周一前被找到。如果遇到长假没有本周一，这里的兜底才会生效
+    if (d.wday === 5 && !lastFridayClose) { 
       lastFridayClose = d.close;
     }
     if (thisWeekMondayClose && lastFridayClose) break;
