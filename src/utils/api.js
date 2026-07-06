@@ -88,3 +88,68 @@ export async function fetchMacroData() {
     return null;
   }
 }
+
+/**
+ * 从 API 获取历史宏观因子数据
+ * @param {string} range - 数据范围，默认 '10y'
+ */
+export async function fetchHistoricalMacroData(range = '10y') {
+  try {
+    const response = await fetch(`/api/macro?range=${range}`);
+    if (!response.ok) throw new Error('Macro History API error');
+    const result = await response.json();
+    if (result.success && result.data) {
+      return result.data;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to fetch historical macro data', error);
+    return null;
+  }
+}
+
+/**
+ * 将历史宏观数据合并到黄金历史日线数据中 (Left Join + Forward Fill)
+ * @param {Array} goldData - 格式化后的黄金历史数据数组
+ * @param {Object} macroData - 包含 { dxy: [...], tnx: [...] } 的宏观历史数据对象
+ */
+export function mergeMacroIntoGoldData(goldData, macroData) {
+  if (!macroData || !macroData.dxy || !macroData.tnx || !goldData || goldData.length === 0) {
+    return goldData;
+  }
+
+  // 构建哈希表加速查找
+  const dxyMap = {};
+  const tnxMap = {};
+  
+  macroData.dxy.forEach(item => {
+    dxyMap[item.date] = item;
+  });
+  macroData.tnx.forEach(item => {
+    tnxMap[item.date] = item;
+  });
+
+  let lastDxy = null;
+  let lastTnx = null;
+
+  // 遍历黄金数据，由于 goldData 是按日期从旧到新排序的，我们可以进行向前填充
+  const mergedData = goldData.map(item => {
+    // 遇到新的宏观数据则更新，否则保持上一次的有效数据 (Forward Fill)
+    if (dxyMap[item.date]) {
+      lastDxy = dxyMap[item.date];
+    }
+    if (tnxMap[item.date]) {
+      lastTnx = tnxMap[item.date];
+    }
+
+    return {
+      ...item,
+      macro: {
+        dxy: lastDxy,
+        tnx: lastTnx
+      }
+    };
+  });
+
+  return mergedData;
+}

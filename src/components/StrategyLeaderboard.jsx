@@ -37,7 +37,8 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
       'grid_drawdown': '历史典型回撤',
       'grid_fib': '斐波那契回撤',
       'mean_reversion': '均值回归',
-      'calendar': '日历效应'
+      'calendar': '日历效应',
+      'macro': '宏观因子'
     };
     return map[id] || id;
   };
@@ -211,6 +212,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
         <option value="斐波那契回撤" />
         <option value="均值回归" />
         <option value="日历效应" />
+        <option value="宏观因子" />
       </datalist>
       <datalist id="sell-strategies-list">
         <option value="无" />

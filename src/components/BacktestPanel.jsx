@@ -8,14 +8,7 @@ export function BacktestPanel({
   tradeFrequency, setTradeFrequency,
   showTradePoints, setShowTradePoints
 }) {
-  if (strategy === 'macro') {
-    return (
-      <div className="card" style={{ marginTop: '24px' }}>
-        <h3 className="section-title">回测结果 (模拟)</h3>
-        <p style={{ color: 'var(--text-secondary)' }}>由于缺乏历史宏观因子数据 (DXY/US10Y)，宏观策略暂不支持回测。</p>
-      </div>
-    );
-  }
+
 
   if (!result) {
     return (

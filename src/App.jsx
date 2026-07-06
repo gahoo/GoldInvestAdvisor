@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchGoldData, fetchMacroData } from './utils/api';
+import { fetchGoldData, fetchMacroData, fetchHistoricalMacroData, mergeMacroIntoGoldData } from './utils/api';
 import { calculateAllIndicators } from './utils/indicators';
 import { Tooltip } from './components/Tooltip';
 import { Chart } from './components/Chart';
@@ -37,7 +37,7 @@ function App() {
   const strategyLeaderboardData = useMemo(() => {
     if (!data || data.length === 0) return [];
 
-    const testBuyStrategies = ['grid', 'grid_drawdown', 'grid_fib', 'mean_reversion', 'calendar'];
+    const testBuyStrategies = ['grid', 'grid_drawdown', 'grid_fib', 'mean_reversion', 'calendar', 'macro'];
     const allSellStrats = ['rsi_scale_out', 'profit_scale_out', 'trend_break_clear'];
     
     // Generate power set of sell strategies
@@ -74,15 +74,24 @@ function App() {
   }, [strategyLeaderboardData]);
 
   useEffect(() => {
-    fetchGoldData().then(result => {
-      if (result.length < 60) {
+    Promise.all([
+      fetchGoldData(),
+      fetchHistoricalMacroData('10y')
+    ]).then(([goldResult, macroHistoryResult]) => {
+      if (goldResult.length < 60) {
         throw new Error('历史数据不足 60 条，无法进行指标计算。');
       }
-      setData(result);
+      
+      let finalData = goldResult;
+      if (macroHistoryResult) {
+        finalData = mergeMacroIntoGoldData(goldResult, macroHistoryResult);
+      }
+      setData(finalData);
     }).catch(err => {
       setError(err.message);
     });
 
+    // 依然保留获取最新一天数据用于实时指标面板展示
     fetchMacroData().then(res => {
       if (res) setMacro(res);
     });

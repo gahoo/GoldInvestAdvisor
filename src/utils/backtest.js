@@ -28,10 +28,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
 
   if (!data || data.length < 60) return null;
 
-  // 宏观策略跳过回测（由于缺少历史宏观数据）
-  if (strategy === 'macro') {
-    return null;
-  }
+  // 宏观策略跳过逻辑已移除，现在使用并入的 historical macro data
 
   let totalGrams = 0;
   let totalCostBasis = 0;
@@ -131,7 +128,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     if (hasSold) continue;
 
     // 2. 判定买入
-    const { targetPrice, multiplier, reason: buyReason } = evaluateStrategy(indicators, null, strategy, baseGrams, currentData.wday);
+    const { targetPrice, multiplier, reason: buyReason } = evaluateStrategy(indicators, currentData.macro || null, strategy, baseGrams, currentData.wday);
     
     let gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * multiplier;
     if (gramsToBuy > 0 && gramsToBuy < minTradeVolume) {
