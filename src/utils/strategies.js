@@ -46,7 +46,15 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams, wday) {
 
   // Ensure targetPrice and multiplier are present in scope, fallback if not
   let targetPrice = scope.targetPrice !== undefined ? scope.targetPrice : (scope.target_price !== undefined ? scope.target_price : indicators.currentPrice);
+  if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
+    targetPrice = indicators.currentPrice;
+  }
+  
   let multiplier = scope.multiplier !== undefined ? scope.multiplier : 1.0;
+  if (!Number.isFinite(multiplier) || multiplier < 0) {
+    multiplier = 1.0;
+  }
+
   let reason = scope.reason || "已执行策略。";
 
   const grams = baseGrams * multiplier;
@@ -90,8 +98,11 @@ export function evaluateSellStrategy(indicators, currentHoldings, averageCost, a
 
     try {
       evaluate(script, scope);
-      if (scope.sellRatio > 0) {
-        maxSellRatio = Math.max(maxSellRatio, scope.sellRatio);
+      
+      // 校验结果
+      if (Number.isFinite(scope.sellRatio) && scope.sellRatio > 0) {
+        let validRatio = Math.min(scope.sellRatio, 1.0); // 最大不能超过 1
+        maxSellRatio = Math.max(maxSellRatio, validRatio);
         if (scope.reason) {
           reasons.push(scope.reason);
         }

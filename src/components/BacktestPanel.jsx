@@ -2,7 +2,7 @@ import React from 'react';
 import { Tooltip } from './Tooltip';
 
 export function BacktestPanel({ 
-  result, strategy, 
+  result, 
   returnMethod, setReturnMethod,
   buyMode, setBuyMode,
   tradeFrequency, setTradeFrequency,
@@ -109,9 +109,15 @@ export function BacktestPanel({
               <Tooltip content="根据设置面板中的算法（XIRR 或 简单年化）计算得出" />
             </div>
           </div>
-          <div className={`indicator-value highlight ${result.annualizedReturn >= 0 ? 'up' : 'down'}`}>
-            {(result.annualizedReturn * 100).toFixed(2)}%
-          </div>
+          {result.annualizedReturn === null ? (
+            <div className="indicator-value" style={{ color: 'var(--text-secondary)' }}>
+              计算失败
+            </div>
+          ) : (
+            <div className={`indicator-value highlight ${result.annualizedReturn >= 0 ? 'up' : 'down'}`}>
+              {(result.annualizedReturn * 100).toFixed(2)}%
+            </div>
+          )}
         </div>
 
         <div className="indicator-card active">

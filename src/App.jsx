@@ -11,7 +11,6 @@ import { BacktestPanel } from './components/BacktestPanel';
 import TradeTable from './components/TradeTable';
 import StrategyLeaderboard from './components/StrategyLeaderboard';
 import { StrategyEditor } from './components/StrategyEditor';
-import { MultiSelectDropdown } from './components/MultiSelectDropdown';
 import { ConfirmModal } from './components/ConfirmModal';
 
 function App() {
@@ -33,11 +32,15 @@ function App() {
   const [bottomTab, setBottomTab] = useState('trades'); // 'trades' | 'leaderboard'
   const [error, setError] = useState(null);
 
-  const [customBuyStrategies, setCustomBuyStrategies] = useState(() => JSON.parse(localStorage.getItem('customBuyStrategies') || '[]'));
+  const [customBuyStrategies, setCustomBuyStrategies] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('customBuyStrategies') || '[]'); } catch { return []; }
+  });
   const [editingBuyStrategy, setEditingBuyStrategy] = useState(null);
   const [usedIndicators, setUsedIndicators] = useState([]);
 
-  const [customSellStrategies, setCustomSellStrategies] = useState(() => JSON.parse(localStorage.getItem('customSellStrategies') || '[]'));
+  const [customSellStrategies, setCustomSellStrategies] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('customSellStrategies') || '[]'); } catch { return []; }
+  });
   const [editingSellStrategy, setEditingSellStrategy] = useState(null);
 
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
@@ -64,30 +67,6 @@ function App() {
       return [...validPrev, ...missing];
     });
   }, [allSellOptions]);
-
-  const toggleLeaderboardBuy = (opt) => {
-    setLeaderboardBuyFilter(prev => {
-      if (prev.includes(opt)) {
-        localStorage.setItem(`unselected_buy_${opt}`, '1');
-        return prev.filter(x => x !== opt);
-      } else {
-        localStorage.removeItem(`unselected_buy_${opt}`);
-        return [...prev, opt];
-      }
-    });
-  };
-
-  const toggleLeaderboardSell = (opt) => {
-    setLeaderboardSellFilter(prev => {
-      if (prev.includes(opt)) {
-        localStorage.setItem(`unselected_sell_${opt}`, '1');
-        return prev.filter(x => x !== opt);
-      } else {
-        localStorage.removeItem(`unselected_sell_${opt}`);
-        return [...prev, opt];
-      }
-    });
-  };
 
   useEffect(() => {
     localStorage.setItem('customBuyStrategies', JSON.stringify(customBuyStrategies));
@@ -116,17 +95,53 @@ function App() {
     );
   };
 
-  const strategyLeaderboardData = useMemo(() => {
-    if (!data || data.length === 0) return [];
-    if (leaderboardBuyFilter.length === 0) return [];
+  const [strategyLeaderboardData, setStrategyLeaderboardData] = useState([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardProgress, setLeaderboardProgress] = useState(0);
+
+  useEffect(() => {
+    if (!data || data.length === 0) {
+      setStrategyLeaderboardData([]);
+      return;
+    }
+    if (leaderboardBuyFilter.length === 0) {
+      setStrategyLeaderboardData([]);
+      return;
+    }
 
     const powerSet = (arr) => arr.reduce((subsets, value) => subsets.concat(subsets.map(set => [value, ...set])), [[]]);
     const sellCombinations = powerSet(leaderboardSellFilter);
+    const totalCombinations = leaderboardBuyFilter.length * sellCombinations.length;
+    
+    if (totalCombinations === 0) {
+      setStrategyLeaderboardData([]);
+      return;
+    }
+
+    setLeaderboardLoading(true);
+    setLeaderboardProgress(0);
 
     const leaderboard = [];
-    leaderboardBuyFilter.forEach(buyStrat => {
-      sellCombinations.forEach(sellStrats => {
+    let buyIdx = 0;
+    let sellIdx = 0;
+    let cancelled = false;
+
+    const computeChunk = () => {
+      if (cancelled) return;
+      
+      const chunkEndTime = performance.now() + 15; // 15ms per frame
+      while (performance.now() < chunkEndTime) {
+        if (buyIdx >= leaderboardBuyFilter.length) {
+          setStrategyLeaderboardData(leaderboard);
+          setLeaderboardLoading(false);
+          setLeaderboardProgress(100);
+          return;
+        }
+
+        const buyStrat = leaderboardBuyFilter[buyIdx];
+        const sellStrats = sellCombinations[sellIdx];
         const tempAllowSell = sellStrats.length > 0;
+        
         const result = runBacktest(data, buyStrat, baseGrams, { 
           returnMethod, buyMode, tradeFrequency, atrPeriod, 
           allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume 
@@ -141,9 +156,25 @@ function App() {
             ...result
           });
         }
-      });
-    });
-    return leaderboard;
+
+        sellIdx++;
+        if (sellIdx >= sellCombinations.length) {
+          sellIdx = 0;
+          buyIdx++;
+        }
+      }
+      
+      const computed = buyIdx * sellCombinations.length + sellIdx;
+      setLeaderboardProgress(Math.floor((computed / totalCombinations) * 100));
+      
+      requestAnimationFrame(computeChunk);
+    };
+
+    requestAnimationFrame(computeChunk);
+
+    return () => {
+      cancelled = true;
+    };
   }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies]);
 
   const bestStrategy = useMemo(() => {
@@ -557,7 +588,6 @@ function App() {
           ) : (
             <BacktestPanel 
               result={backtestResult} 
-              strategy={strategy} 
               returnMethod={returnMethod}
               setReturnMethod={setReturnMethod}
               buyMode={buyMode}
@@ -708,6 +738,15 @@ function App() {
           {bottomTab === 'trades' ? (
             showTradePoints && <TradeTable trades={backtestResult.trades} />
           ) : (
+            leaderboardLoading ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <div style={{ marginBottom: '16px', fontSize: '1.1rem' }}>正在计算策略组合回测数据...</div>
+                <div style={{ width: '80%', height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', margin: '0 auto', overflow: 'hidden' }}>
+                  <div style={{ width: `${leaderboardProgress}%`, height: '100%', background: 'var(--accent-gold)', transition: 'width 0.2s' }}></div>
+                </div>
+                <div style={{ marginTop: '8px', fontSize: '0.9rem' }}>{leaderboardProgress}%</div>
+              </div>
+            ) : (
               <StrategyLeaderboard 
                 data={strategyLeaderboardData} 
                 currentStrategy={strategy}
@@ -737,6 +776,7 @@ function App() {
                   setSellStrategies(sellStrats);
                 }}
               />
+            )
           )}
         </div>
       )}

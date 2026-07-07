@@ -53,15 +53,18 @@ export function calculateWeeklyATR(data, period = 4) {
       if (i !== 0) {
         weeklyCandles.push({ ...currentWeek });
       }
-      currentWeek = { high: d.high, low: d.low, close: d.close };
+      currentWeek = { high: d.high, low: d.low, close: d.close, wday: d.wday };
     } else {
       currentWeek.high = Math.max(currentWeek.high, d.high);
       currentWeek.low = Math.min(currentWeek.low, d.low);
       currentWeek.close = d.close; // 不断更新为这周最后一天的收盘价
+      currentWeek.wday = d.wday;
     }
   }
-  // push the last week
-  weeklyCandles.push({ ...currentWeek });
+  // push the last week, 排除当前未完成周 (如果还没到周五，则不计入 ATR 计算，防止拉低真实波动率)
+  if (currentWeek.wday >= 5 || weeklyCandles.length < period) {
+    weeklyCandles.push({ ...currentWeek });
+  }
   
   return calculateATR(weeklyCandles, Math.min(period, weeklyCandles.length - 1)) || 0;
 }
