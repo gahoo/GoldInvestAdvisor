@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { MultiSelectDropdown } from './MultiSelectDropdown';
 
-const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrategies }) => {
+const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrategies, leaderboardBuyFilter, setLeaderboardBuyFilter, allBuyOptions, allSellOptions, leaderboardSellFilter, setLeaderboardSellFilter, getOptionLabelBuy, getOptionLabelSell }) => {
   const [sortField, setSortField] = useState('annualizedReturn');
   const [sortOrder, setSortOrder] = useState('desc');
   const [filters, setFilters] = useState({});
@@ -28,28 +29,20 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
     setFilters(prev => ({ ...prev, [field]: value }));
   };
 
-  const numericFields = ['annualizedReturn', 'absoluteReturn', 'netProfit', 'realizedProfit', 'finalValue', 'maxDrawdown', 'calmarRatio', 'totalInvested', 'tradeCount', 'winRate'];
-  const lessThanFields = ['maxDrawdown', 'totalInvested', 'tradeCount'];
+  const numericFields = ['annualizedReturn', 'absoluteReturn', 'netProfit', 'realizedProfit', 'finalValue', 'maxDrawdown', 'calmarRatio', 'maxCapitalDeployed', 'tradeCount', 'winRate'];
+  const lessThanFields = ['maxDrawdown', 'maxCapitalDeployed', 'tradeCount'];
 
-  const getBuyStrategyName = (id) => {
-    const map = {
-      'grid': '基准定投',
-      'grid_drawdown': '历史典型回撤',
-      'grid_fib': '斐波那契回撤',
-      'mean_reversion': '均值回归',
-      'calendar': '日历效应',
-      'macro': '宏观因子'
-    };
-    return map[id] || id;
+  const getBuyStrategyName = (id, row) => {
+    if (row && row.buyName && row.buyName !== id) return row.buyName;
+    return getOptionLabelBuy ? getOptionLabelBuy(id) : id;
   };
 
-  const getSellStrategyName = (id) => {
-    const map = {
-      'rsi_scale_out': '均值回归高抛',
-      'profit_scale_out': '目标收益减仓',
-      'trend_break_clear': '破位清仓止损'
-    };
-    return map[id] || id;
+  const getSellStrategyName = (id, row) => {
+    if (row && row.sellNames) {
+      const idx = row.sellStrategies.indexOf(id);
+      if (idx !== -1 && row.sellNames[idx] && row.sellNames[idx] !== id) return row.sellNames[idx];
+    }
+    return getOptionLabelSell ? getOptionLabelSell(id) : id;
   };
 
   const minMax = useMemo(() => {
@@ -68,7 +61,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
   const filteredData = data.filter(row => {
     // Text Filters
     if (buyFilter) {
-      const buyName = getBuyStrategyName(row.buyStrategy);
+      const buyName = getBuyStrategyName(row.buyStrategy, row);
       if (!buyName.includes(buyFilter) && !row.buyStrategy.includes(buyFilter)) {
         return false;
       }
@@ -77,7 +70,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
       if (sellFilter === '无' && row.sellStrategies.length > 0) return false;
       if (sellFilter !== '无') {
         const hasMatch = row.sellStrategies.some(s => {
-          const sName = getSellStrategyName(s);
+          const sName = getSellStrategyName(s, row);
           return sName.includes(sellFilter) || s.includes(sellFilter);
         });
         if (!hasMatch) return false;
@@ -113,10 +106,11 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
   };
 
   const formatValue = (field, val) => {
+    if (val === null || val === undefined || Number.isNaN(val)) return '-';
     if (['annualizedReturn', 'absoluteReturn', 'maxDrawdown', 'winRate'].includes(field)) {
       return (val * 100).toFixed(1) + '%';
     }
-    if (['netProfit', 'realizedProfit', 'finalValue', 'totalInvested'].includes(field)) {
+    if (['netProfit', 'realizedProfit', 'finalValue', 'maxCapitalDeployed'].includes(field)) {
       return (val / 1000).toFixed(1) + 'k';
     }
     if (field === 'calmarRatio') return val.toFixed(1);
@@ -124,10 +118,10 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
   };
 
   const formatDisplayValue = (field, val) => {
-    if (val === null) return '计算失败';
+    if (val === null || val === undefined || Number.isNaN(val)) return '-';
     if (['annualizedReturn', 'absoluteReturn', 'maxDrawdown'].includes(field)) return (val * 100).toFixed(2) + '%';
     if (field === 'winRate') return (val * 100).toFixed(1) + '%';
-    if (['netProfit', 'realizedProfit', 'finalValue', 'totalInvested'].includes(field)) return '¥' + val.toFixed(2);
+    if (['netProfit', 'realizedProfit', 'finalValue', 'maxCapitalDeployed'].includes(field)) return '¥' + val.toFixed(2);
     if (field === 'calmarRatio') return val > 0 ? val.toFixed(2) : '-';
     return val;
   };
@@ -279,7 +273,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                        field === 'finalValue' ? '期末' :
                        field === 'maxDrawdown' ? '回撤' :
                        field === 'calmarRatio' ? '回撤比' :
-                       field === 'totalInvested' ? '投入' :
+                       field === 'maxCapitalDeployed' ? '最大投入' :
                        field === 'tradeCount' ? '笔数' : '胜率'}
                     </span>
                     {renderSlider(field)}
@@ -305,7 +299,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '12px' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
-                      {getBuyStrategyName(row.buyStrategy)}
+                      {getBuyStrategyName(row.buyStrategy, row)}
                     </div>
                     {isCurrent && <span style={{ fontSize: '0.8rem', color: 'var(--accent-gold)', fontWeight: 'bold' }}>正在使用 ✅</span>}
                   </div>
@@ -315,7 +309,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>无 (仅买入持仓)</span>
                     ) : row.sellStrategies.map(s => (
                       <span key={s} style={{ fontSize: '0.75rem', padding: '4px 8px', backgroundColor: 'var(--bg-color)', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
-                        🏷️ {getSellStrategyName(s)}
+                        🏷️ {getSellStrategyName(s, row)}
                       </span>
                     ))}
                   </div>
@@ -357,24 +351,24 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left', backgroundColor: 'var(--bg-color)' }}>
-                <th style={{ padding: '12px 8px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                  <div style={{ marginBottom: '8px' }}>买入策略</div>
-                  <input 
-                    list="buy-strategies-list"
-                    value={buyFilter} 
-                    onChange={e => setBuyFilter(e.target.value)} 
-                    placeholder="全部 / 搜索..."
-                    style={{ width: '110px', padding: '4px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} 
+                <th style={{ padding: '12px 8px', whiteSpace: 'nowrap', verticalAlign: 'top', minWidth: '180px' }}>
+                  <div style={{ marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>买入策略 (作为基准)</div>
+                  <MultiSelectDropdown 
+                    label="买入策略"
+                    options={allBuyOptions}
+                    selectedOptions={leaderboardBuyFilter}
+                    getOptionLabel={getOptionLabelBuy}
+                    onChange={setLeaderboardBuyFilter}
                   />
                 </th>
-                <th style={{ padding: '12px 8px', minWidth: '120px', verticalAlign: 'top' }}>
-                  <div style={{ marginBottom: '8px' }}>卖出组合</div>
-                  <input 
-                    list="sell-strategies-list"
-                    value={sellFilter} 
-                    onChange={e => setSellFilter(e.target.value)} 
-                    placeholder="包含... / 无"
-                    style={{ width: '110px', padding: '4px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} 
+                <th style={{ padding: '12px 8px', minWidth: '180px', verticalAlign: 'top' }}>
+                  <div style={{ marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>卖出策略 (自由组合)</div>
+                  <MultiSelectDropdown 
+                    label="卖出策略"
+                    options={allSellOptions}
+                    selectedOptions={leaderboardSellFilter}
+                    getOptionLabel={getOptionLabelSell}
+                    onChange={setLeaderboardSellFilter}
                   />
                 </th>
                 
@@ -413,9 +407,9 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                   {renderSlider('calmarRatio')}
                 </th>
 
-                <th style={{ padding: '12px 8px', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={() => handleSort('totalInvested')}>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>资金占用 {renderSortArrow('totalInvested')}</div>
-                  {renderSlider('totalInvested')}
+                <th style={{ padding: '12px 8px', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={() => handleSort('maxCapitalDeployed')}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>资金占用 {renderSortArrow('maxCapitalDeployed')}</div>
+                  {renderSlider('maxCapitalDeployed')}
                 </th>
 
                 <th style={{ padding: '12px 8px', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={() => handleSort('tradeCount')}>
@@ -448,7 +442,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                   >
                     <td style={{ padding: '12px 8px', fontWeight: '500', whiteSpace: 'nowrap' }}>
                       <span style={{ whiteSpace: 'nowrap' }}>
-                        {getBuyStrategyName(row.buyStrategy)}
+                        {getBuyStrategyName(row.buyStrategy, row)}
                       </span>
                     </td>
                     <td style={{ padding: '12px 8px' }}>
@@ -464,7 +458,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                               borderRadius: '4px',
                               whiteSpace: 'nowrap'
                             }}>
-                              {getSellStrategyName(s)}
+                              {getSellStrategyName(s, row)}
                             </span>
                           ))}
                         </div>
@@ -492,7 +486,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                       {formatDisplayValue('calmarRatio', row.calmarRatio)}
                     </td>
                     <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {formatDisplayValue('totalInvested', row.totalInvested)}
+                      {formatDisplayValue('maxCapitalDeployed', row.maxCapitalDeployed)}
                     </td>
                     <td style={{ padding: '12px 8px', textAlign: 'right' }}>
                       {row.tradeCount}

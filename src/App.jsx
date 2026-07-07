@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { parse } from 'mathjs';
 import { fetchGoldData, fetchMacroData, fetchHistoricalMacroData, mergeMacroIntoGoldData } from './utils/api';
 import { calculateAllIndicators } from './utils/indicators';
+import { BUILT_IN_BUY_STRATEGIES, BUILT_IN_SELL_STRATEGIES } from './utils/builtin_formulas';
 import { Tooltip } from './components/Tooltip';
 import { Chart } from './components/Chart';
 import { evaluateStrategy, evaluateSellStrategy } from './utils/strategies';
@@ -8,6 +10,9 @@ import { runBacktest } from './utils/backtest';
 import { BacktestPanel } from './components/BacktestPanel';
 import TradeTable from './components/TradeTable';
 import StrategyLeaderboard from './components/StrategyLeaderboard';
+import { StrategyEditor } from './components/StrategyEditor';
+import { MultiSelectDropdown } from './components/MultiSelectDropdown';
+import { ConfirmModal } from './components/ConfirmModal';
 
 function App() {
   const [data, setData] = useState([]);
@@ -21,12 +26,89 @@ function App() {
   const [tradeFrequency, setTradeFrequency] = useState('weekly');
   const [showTradePoints, setShowTradePoints] = useState(true);
   const [activeTab, setActiveTab] = useState('indicators'); // 'indicators' or 'backtest'
-  const [allowSell, setAllowSell] = useState(false);
   const [sellFee, setSellFee] = useState(0.01);
-  const [sellStrategies, setSellStrategies] = useState(['profit_scale_out']);
+  const [sellStrategies, setSellStrategies] = useState([]);
+  const allowSell = sellStrategies.length > 0;
   const [minTradeVolume, setMinTradeVolume] = useState(1);
   const [bottomTab, setBottomTab] = useState('trades'); // 'trades' | 'leaderboard'
   const [error, setError] = useState(null);
+
+  const [customBuyStrategies, setCustomBuyStrategies] = useState(() => JSON.parse(localStorage.getItem('customBuyStrategies') || '[]'));
+  const [editingBuyStrategy, setEditingBuyStrategy] = useState(null);
+  const [usedIndicators, setUsedIndicators] = useState([]);
+
+  const [customSellStrategies, setCustomSellStrategies] = useState(() => JSON.parse(localStorage.getItem('customSellStrategies') || '[]'));
+  const [editingSellStrategy, setEditingSellStrategy] = useState(null);
+
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+
+  const allBuyOptions = useMemo(() => [...Object.keys(BUILT_IN_BUY_STRATEGIES), ...customBuyStrategies.map(s => s.id)], [customBuyStrategies]);
+  const allSellOptions = useMemo(() => [...Object.keys(BUILT_IN_SELL_STRATEGIES), ...customSellStrategies.map(s => s.id)], [customSellStrategies]);
+  const [leaderboardBuyFilter, setLeaderboardBuyFilter] = useState(allBuyOptions);
+  const [leaderboardSellFilter, setLeaderboardSellFilter] = useState(allSellOptions);
+
+  useEffect(() => {
+    setLeaderboardBuyFilter(prev => {
+      const validPrev = prev.filter(o => allBuyOptions.includes(o));
+      const missing = allBuyOptions.filter(o => !validPrev.includes(o) && !localStorage.getItem(`unselected_buy_${o}`));
+      if (validPrev.length === prev.length && missing.length === 0) return prev;
+      return [...validPrev, ...missing];
+    });
+  }, [allBuyOptions]);
+
+  useEffect(() => {
+    setLeaderboardSellFilter(prev => {
+      const validPrev = prev.filter(o => allSellOptions.includes(o));
+      const missing = allSellOptions.filter(o => !validPrev.includes(o) && !localStorage.getItem(`unselected_sell_${o}`));
+      if (validPrev.length === prev.length && missing.length === 0) return prev;
+      return [...validPrev, ...missing];
+    });
+  }, [allSellOptions]);
+
+  const toggleLeaderboardBuy = (opt) => {
+    setLeaderboardBuyFilter(prev => {
+      if (prev.includes(opt)) {
+        localStorage.setItem(`unselected_buy_${opt}`, '1');
+        return prev.filter(x => x !== opt);
+      } else {
+        localStorage.removeItem(`unselected_buy_${opt}`);
+        return [...prev, opt];
+      }
+    });
+  };
+
+  const toggleLeaderboardSell = (opt) => {
+    setLeaderboardSellFilter(prev => {
+      if (prev.includes(opt)) {
+        localStorage.setItem(`unselected_sell_${opt}`, '1');
+        return prev.filter(x => x !== opt);
+      } else {
+        localStorage.removeItem(`unselected_sell_${opt}`);
+        return [...prev, opt];
+      }
+    });
+  };
+
+  useEffect(() => {
+    localStorage.setItem('customBuyStrategies', JSON.stringify(customBuyStrategies));
+  }, [customBuyStrategies]);
+
+  useEffect(() => {
+    localStorage.setItem('customSellStrategies', JSON.stringify(customSellStrategies));
+  }, [customSellStrategies]);
+
+  useEffect(() => {
+    if (strategy.startsWith('custom_buy_')) {
+      const customStrat = customBuyStrategies.find(s => s.id === strategy);
+      if (customStrat) {
+        try {
+          const node = parse(customStrat.script);
+          const vars = node.filter(n => n.isSymbolNode).map(n => n.name);
+          setUsedIndicators(vars);
+        } catch (err) {}
+      }
+    }
+  }, [strategy, customBuyStrategies]);
 
   const toggleSellStrategy = (strat) => {
     setSellStrategies(prev => 
@@ -36,16 +118,13 @@ function App() {
 
   const strategyLeaderboardData = useMemo(() => {
     if (!data || data.length === 0) return [];
+    if (leaderboardBuyFilter.length === 0) return [];
 
-    const testBuyStrategies = ['grid', 'grid_drawdown', 'grid_fib', 'mean_reversion', 'calendar', 'macro'];
-    const allSellStrats = ['rsi_scale_out', 'profit_scale_out', 'trend_break_clear'];
-    
-    // Generate power set of sell strategies
     const powerSet = (arr) => arr.reduce((subsets, value) => subsets.concat(subsets.map(set => [value, ...set])), [[]]);
-    const sellCombinations = powerSet(allSellStrats);
+    const sellCombinations = powerSet(leaderboardSellFilter);
 
     const leaderboard = [];
-    testBuyStrategies.forEach(buyStrat => {
+    leaderboardBuyFilter.forEach(buyStrat => {
       sellCombinations.forEach(sellStrats => {
         const tempAllowSell = sellStrats.length > 0;
         const result = runBacktest(data, buyStrat, baseGrams, { 
@@ -53,17 +132,19 @@ function App() {
           allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume 
         });
         
-        if (result && result.trades) { // Check if valid result
+        if (result && result.trades) {
           leaderboard.push({
             buyStrategy: buyStrat,
             sellStrategies: sellStrats,
+            buyName: buyStrat.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === buyStrat)?.name || buyStrat) : buyStrat,
+            sellNames: sellStrats.map(s => s.startsWith('custom_sell_') ? (customSellStrategies.find(c => c.id === s)?.name || s) : s),
             ...result
           });
         }
       });
     });
     return leaderboard;
-  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume]);
+  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies]);
 
   const bestStrategy = useMemo(() => {
     if (!strategyLeaderboardData || strategyLeaderboardData.length === 0) return 'grid';
@@ -104,6 +185,17 @@ function App() {
   }, [data, atrPeriod]);
 
   const isActive = (cardType) => {
+    if (strategy.startsWith('custom_buy_')) {
+      if (cardType === 'price') return true; 
+      if (cardType === 'atr' && usedIndicators.includes('weeklyAtr')) return true;
+      if (cardType === 'bias' && usedIndicators.includes('bias')) return true;
+      if (cardType === 'rsi' && usedIndicators.includes('rsi')) return true;
+      if (cardType === 'fib' && (usedIndicators.includes('fib_level382') || usedIndicators.includes('fib_level618'))) return true;
+      if (cardType === 'calendar' && usedIndicators.includes('calendar_bestBuyDay')) return true;
+      if (cardType === 'macro' && (usedIndicators.includes('macro_dxy_changePercent') || usedIndicators.includes('macro_tnx_changePercent') || usedIndicators.includes('macro_valid'))) return true;
+      return false;
+    }
+
     switch (strategy) {
       case 'grid': return ['atr', 'bias', 'price'].includes(cardType);
       case 'grid_drawdown': return ['bias', 'price'].includes(cardType);
@@ -146,101 +238,100 @@ function App() {
 
   return (
     <div className="app-container">
+      <ConfirmModal 
+        {...confirmDialog} 
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} 
+      />
       <div className="two-column-layout">
         {/* 左侧：策略选择与指标监控 */}
         <div className="left-panel">
           <div className="card">
             <h3 className="section-title">买入策略</h3>
             <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
-              <button className={`strategy-btn ${strategy === 'grid' ? 'active' : ''}`} onClick={() => setStrategy('grid')}>
-                基础网格 {bestStrategy === 'grid' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
-              </button>
-              <button className={`strategy-btn ${strategy === 'grid_drawdown' ? 'active' : ''}`} onClick={() => setStrategy('grid_drawdown')}>
-                历史典型回撤 {bestStrategy === 'grid_drawdown' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
-              </button>
-              <button className={`strategy-btn ${strategy === 'grid_fib' ? 'active' : ''}`} onClick={() => setStrategy('grid_fib')}>
-                动态波动 {bestStrategy === 'grid_fib' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
-              </button>
-              <button className={`strategy-btn ${strategy === 'mean_reversion' ? 'active' : ''}`} onClick={() => setStrategy('mean_reversion')}>
-                均值回归 {bestStrategy === 'mean_reversion' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
-              </button>
-              <button className={`strategy-btn ${strategy === 'calendar' ? 'active' : ''}`} onClick={() => setStrategy('calendar')}>
-                日历效应 {bestStrategy === 'calendar' && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
-              </button>
-              <button className={`strategy-btn ${strategy === 'macro' ? 'active' : ''}`} onClick={() => setStrategy('macro')}>
-                宏观因子
+              {Object.keys(BUILT_IN_BUY_STRATEGIES).map(key => (
+                <button key={key} className={`strategy-btn ${strategy === key ? 'active' : ''}`} onClick={() => setStrategy(key)}>
+                  {BUILT_IN_BUY_STRATEGIES[key].name} {bestStrategy === key && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                </button>
+              ))}
+              
+              {customBuyStrategies.map(strat => (
+                <button key={strat.id} className={`strategy-btn ${strategy === strat.id ? 'active' : ''}`} onClick={() => { setStrategy(strat.id); setEditingBuyStrategy(null); }}>
+                  [自定义] {strat.name} {bestStrategy === strat.id && <span title="本段历史收益最高" style={{marginLeft: '4px'}}>👑</span>}
+                </button>
+              ))}
+
+              <button className={`strategy-btn ${editingBuyStrategy === 'new' ? 'active' : ''}`} onClick={() => setEditingBuyStrategy('new')}>
+                [+] 新建策略
               </button>
             </div>
             
-            <div className="strategy-description" style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-light)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              {strategy === 'grid' && (
-                <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 基础网格吃单 (经典版)</div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>利用底层引擎合成的真实周 K 线，精确计算周级别的真实波动率 (Weekly ATR)，在现价下方预留半个真实波动空间作为防守安全垫。<br/>
-                    <strong>算法：</strong>目标价 = 现价 - (真实周ATR × 0.5)。买入倍率受中长期均线 (MA60) 的乖离率动态调节。
-                  </div>
-                </>
-              )}
-              {strategy === 'grid_drawdown' && (
-                <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 保守网格：历史典型回撤预测法 (推荐🌟)</div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>直接回溯过去 52 周的真实历史行情，计算每周“周一开局至当周极值”的典型跌幅（中位数）作为安全垫。<br/>
-                    <strong>算法：</strong>目标价 = 本周基准锚点价 × (1 - 历史中位数跌幅)。基准锚点优先锁定“本周一收盘价”，遇到盘中或假期真空期会自动降级为当前现价。这完美贴合黄金“急跌慢涨”的非对称属性。
-                  </div>
-                </>
-              )}
-              {strategy === 'grid_fib' && (
-                <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 动态防守：ATR与斐波那契结合法</div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>结合当前趋势强度（斐波那契回调位）和市场的极值恐慌度（真实周 ATR）来动态决定防守深度。<br/>
-                    <strong>算法：</strong>如果在强支撑上方，目标价 = 现价 - 真实周ATR × 38.2%；如果跌破支撑陷入震荡，防守底线后撤至更极端的 61.8% 深位。
-                  </div>
-                </>
-              )}
-              {strategy === 'mean_reversion' && (
-                <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 均值回归</div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>寻找极端超买超卖点的反转机会。<br/>
-                    <strong>算法：</strong>目标价设在近期的 61.8% 斐波那契强支撑位。结合 RSI，超卖(&lt;30)两倍加仓，超买(&gt;70)观望不买。
-                  </div>
-                </>
-              )}
-              {strategy === 'calendar' && (
-                <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 日历效应叠加法</div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>根据历史数据统计，一周当中哪一天黄金最容易遭到抛售产生低点？<br/>
-                    <strong>算法：</strong>如果今天是全周最佳买入日，则现价买入；否则建议观望，并在现价上往下打折预期累计跌幅。
-                  </div>
-                </>
-              )}
-              {strategy === 'macro' && (
-                <>
-                  <div style={{ fontWeight: '600', marginBottom: '8px' }}>🧠 宏观多因子跨市场套利</div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                    <strong>逻辑：</strong>美元指数和美国十年期国债收益率是压制金价的两座大山。利用它们的数据预判黄金短线异动。<br/>
-                    <strong>算法：</strong>如果 DXY 和 US10Y 盘中双双暴涨，预判黄金承压，目标挂单价向下打折 1%，并 1.5 倍加仓接多。
-                  </div>
-                </>
-              )}
+            <div style={{ marginTop: '16px' }}>
+              {(() => {
+                const isNew = editingBuyStrategy === 'new';
+                const activeStratId = isNew ? null : strategy;
+                let stratObj = null;
+                let isBuiltIn = false;
+                let readOnly = true;
+
+                if (isNew) {
+                  stratObj = null;
+                  isBuiltIn = false;
+                  readOnly = false;
+                } else if (BUILT_IN_BUY_STRATEGIES[activeStratId]) {
+                  stratObj = { id: activeStratId, ...BUILT_IN_BUY_STRATEGIES[activeStratId] };
+                  isBuiltIn = true;
+                  readOnly = true;
+                } else {
+                  stratObj = customBuyStrategies.find(s => s.id === activeStratId) || { id: activeStratId, name: activeStratId, description: '', script: '' };
+                  isBuiltIn = false;
+                  readOnly = editingBuyStrategy !== activeStratId;
+                }
+
+                if (!stratObj && !isNew) return null;
+
+                return (
+                  <StrategyEditor
+                    type="buy"
+                    strategy={stratObj}
+                    isBuiltIn={isBuiltIn}
+                    readOnly={readOnly}
+                    onEdit={() => setEditingBuyStrategy(activeStratId)}
+                    onDelete={() => {
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: '删除策略',
+                        message: `确定要删除买入策略「${stratObj.name}」吗？`,
+                        onConfirm: () => {
+                          setCustomBuyStrategies(prev => prev.filter(s => s.id !== activeStratId));
+                          setStrategy('grid');
+                          setEditingBuyStrategy(null);
+                        }
+                      });
+                    }}
+                    onSave={(newStrat) => {
+                      setCustomBuyStrategies(prev => {
+                        const idx = prev.findIndex(s => s.id === newStrat.id);
+                        if (idx >= 0) {
+                          const next = [...prev];
+                          next[idx] = newStrat;
+                          return next;
+                        }
+                        return [...prev, newStrat];
+                      });
+                      setStrategy(newStrat.id);
+                      setEditingBuyStrategy(null);
+                    }}
+                    onCancel={() => setEditingBuyStrategy(null)}
+                  />
+                );
+              })()}
             </div>
           </div>
 
           <div className="card" style={{ marginTop: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 className="section-title" style={{ margin: 0 }}>卖出套现配置 (全局)</h3>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
-                <input type="checkbox" checked={allowSell} onChange={e => setAllowSell(e.target.checked)} style={{ marginRight: '8px', transform: 'scale(1.2)' }} />
-                启用卖出功能
-              </label>
-            </div>
+            <h3 className="section-title" style={{ margin: 0, marginBottom: '16px' }}>卖出套现配置 (全局)</h3>
             
-            {allowSell && (
-              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+            <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>卖出策略组合 (支持多选)</div>
                   <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem' }}>
@@ -250,47 +341,95 @@ function App() {
                   </label>
                 </div>
                 <div className="strategy-selector" style={{ flexWrap: 'wrap', overflowX: 'visible', gap: '10px' }}>
-                  <button className={`strategy-btn ${sellStrategies.includes('rsi_scale_out') ? 'active' : ''}`} onClick={() => toggleSellStrategy('rsi_scale_out')}>
-                    [压舱石] 均值回归高抛
-                  </button>
-                  <button className={`strategy-btn ${sellStrategies.includes('profit_scale_out') ? 'active' : ''}`} onClick={() => toggleSellStrategy('profit_scale_out')}>
-                    [压舱石] 目标收益减仓
-                  </button>
-                  <button className={`strategy-btn ${sellStrategies.includes('trend_break_clear') ? 'active' : ''}`} onClick={() => toggleSellStrategy('trend_break_clear')}>
-                    [防守] 破位清仓止损
+                  {Object.keys(BUILT_IN_SELL_STRATEGIES).map(key => (
+                    <button key={key} className={`strategy-btn ${sellStrategies.includes(key) ? 'active' : ''}`} onClick={() => toggleSellStrategy(key)}>
+                      {BUILT_IN_SELL_STRATEGIES[key].name}
+                    </button>
+                  ))}
+                  
+                  {customSellStrategies.map(strat => (
+                    <button key={strat.id} className={`strategy-btn ${sellStrategies.includes(strat.id) ? 'active' : ''}`} onClick={() => toggleSellStrategy(strat.id)}>
+                      [自定义] {strat.name}
+                    </button>
+                  ))}
+
+                  <button className={`strategy-btn ${editingSellStrategy === 'new' ? 'active' : ''}`} onClick={() => setEditingSellStrategy('new')}>
+                    [+] 新建卖出策略
                   </button>
                 </div>
                 
-                {sellStrategies.length > 0 && (
-                  <div className="strategy-description" style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-light)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                    {sellStrategies.includes('rsi_scale_out') && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>📉 [压舱石] 均值回归高抛</div>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                          当 RSI 大于 70（超买）且当前处于浮盈状态时，卖出 30% 持仓锁定利润，保留 70% 作为压舱石底仓。
-                        </div>
-                      </div>
-                    )}
-                    {sellStrategies.includes('profit_scale_out') && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>📉 [压舱石] 目标收益减仓</div>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                          当浮盈比例超过 10% 时，卖出 50% 持仓，收回大部分本金，剩余 50% 继续跟随趋势。
-                        </div>
-                      </div>
-                    )}
-                    {sellStrategies.includes('trend_break_clear') && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>🛡️ [防守] 破位清仓止损</div>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                          当价格跌破 MA60 中期均线，且当前仍处于浮盈状态时，清仓（卖出 100%）以规避长期下跌风险。
-                        </div>
-                      </div>
+                {(sellStrategies.length > 0 || editingSellStrategy) && (
+                  <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {sellStrategies.map(stratId => {
+                      let stratObj = null;
+                      let isBuiltIn = false;
+                      let readOnly = editingSellStrategy?.id !== stratId;
+
+                      if (BUILT_IN_SELL_STRATEGIES[stratId]) {
+                        stratObj = { id: stratId, ...BUILT_IN_SELL_STRATEGIES[stratId] };
+                        isBuiltIn = true;
+                        readOnly = true;
+                      } else {
+                        stratObj = customSellStrategies.find(s => s.id === stratId);
+                        if (!stratObj) return null;
+                      }
+
+                      return (
+                        <StrategyEditor
+                          key={stratId}
+                          type="sell"
+                          strategy={stratObj}
+                          isBuiltIn={isBuiltIn}
+                          readOnly={readOnly}
+                          onEdit={() => setEditingSellStrategy(stratObj)}
+                          onDelete={() => {
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: '删除卖出策略',
+                              message: `确定要删除卖出策略「${stratObj.name}」吗？`,
+                              onConfirm: () => {
+                                setCustomSellStrategies(prev => prev.filter(s => s.id !== stratId));
+                                setSellStrategies(prev => prev.filter(s => s !== stratId));
+                              }
+                            });
+                          }}
+                          onSave={(newStrat) => {
+                            setCustomSellStrategies(prev => {
+                              const idx = prev.findIndex(s => s.id === newStrat.id);
+                              if (idx >= 0) {
+                                const next = [...prev];
+                                next[idx] = newStrat;
+                                return next;
+                              }
+                              return [...prev, newStrat];
+                            });
+                            if (!sellStrategies.includes(newStrat.id)) {
+                              setSellStrategies(prev => [...prev, newStrat.id]);
+                            }
+                            setEditingSellStrategy(null);
+                          }}
+                          onCancel={() => setEditingSellStrategy(null)}
+                        />
+                      );
+                    })}
+
+                    {editingSellStrategy === 'new' && (
+                      <StrategyEditor
+                        type="sell"
+                        strategy={null}
+                        isBuiltIn={false}
+                        readOnly={false}
+                        onSave={(newStrat) => {
+                          setCustomSellStrategies(prev => [...prev, newStrat]);
+                          setSellStrategies(prev => [...prev, newStrat.id]);
+                          setEditingSellStrategy(null);
+                        }}
+                        onCancel={() => setEditingSellStrategy(null)}
+                      />
                     )}
                   </div>
                 )}
               </div>
-            )}
           </div>
 
           <div style={{ display: 'flex', gap: '16px', marginTop: '24px', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
@@ -569,21 +708,35 @@ function App() {
           {bottomTab === 'trades' ? (
             showTradePoints && <TradeTable trades={backtestResult.trades} />
           ) : (
-            <StrategyLeaderboard 
-              data={strategyLeaderboardData} 
-              currentStrategy={strategy}
-              currentSellStrategies={allowSell ? sellStrategies : []}
-              onApply={(buyStrat, sellStrats) => {
-                setStrategy(buyStrat);
-                if (sellStrats.length > 0) {
-                  setAllowSell(true);
+              <StrategyLeaderboard 
+                data={strategyLeaderboardData} 
+                currentStrategy={strategy}
+                currentSellStrategies={allowSell ? sellStrategies : []}
+                leaderboardBuyFilter={leaderboardBuyFilter}
+                setLeaderboardBuyFilter={(newSelection) => {
+                  setLeaderboardBuyFilter(newSelection);
+                  allBuyOptions.forEach(opt => {
+                    if (newSelection.includes(opt)) localStorage.removeItem(`unselected_buy_${opt}`);
+                    else localStorage.setItem(`unselected_buy_${opt}`, '1');
+                  });
+                }}
+                allBuyOptions={allBuyOptions}
+                allSellOptions={allSellOptions}
+                leaderboardSellFilter={leaderboardSellFilter}
+                setLeaderboardSellFilter={(newSelection) => {
+                  setLeaderboardSellFilter(newSelection);
+                  allSellOptions.forEach(opt => {
+                    if (newSelection.includes(opt)) localStorage.removeItem(`unselected_sell_${opt}`);
+                    else localStorage.setItem(`unselected_sell_${opt}`, '1');
+                  });
+                }}
+                getOptionLabelBuy={opt => opt.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === opt)?.name || opt) : (BUILT_IN_BUY_STRATEGIES[opt]?.name || opt)}
+                getOptionLabelSell={opt => opt.startsWith('custom_sell_') ? (customSellStrategies.find(s => s.id === opt)?.name || opt) : (BUILT_IN_SELL_STRATEGIES[opt]?.name || opt)}
+                onApply={(buyStrat, sellStrats) => {
+                  setStrategy(buyStrat);
                   setSellStrategies(sellStrats);
-                } else {
-                  setAllowSell(false);
-                  setSellStrategies([]);
-                }
-              }}
-            />
+                }}
+              />
           )}
         </div>
       )}

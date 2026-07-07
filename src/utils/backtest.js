@@ -254,7 +254,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   const calmarRatio = maxDrawdown > 0 ? annualizedReturn / maxDrawdown : 0;
 
   return {
-    totalInvested: maxCapitalDeployed, // Using maxCapitalDeployed for UI compatibility
+    maxCapitalDeployed,
     totalBuyAmount,
     totalCostBasis,
     averageCost,

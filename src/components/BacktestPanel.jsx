@@ -59,7 +59,7 @@ export function BacktestPanel({
               <Tooltip content="由于存在卖出操作回收本金，这是历史回测中您账户最多需要准备的资金（Max Capital Deployed）。" />
             </div>
           </div>
-          <div className="indicator-value">¥ {result.totalInvested.toFixed(2)}</div>
+          <div className="indicator-value">¥ {result.maxCapitalDeployed.toFixed(2)}</div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
             累计买入流水: ¥ {result.totalBuyAmount?.toFixed(2) || '0.00'}
           </div>
