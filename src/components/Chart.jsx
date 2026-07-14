@@ -36,16 +36,32 @@ export function Chart({ data, trades = [], showTrades = false }) {
 
   const filteredData = useMemo(() => {
     if (!chartData || chartData.length === 0) return [];
-    let daysToKeep = chartData.length;
+    if (timeRange === 'all') return chartData;
+
+    let targetDate = new Date(chartData[chartData.length - 1].date);
+    if (timeRange === '1w') targetDate.setDate(targetDate.getDate() - 7);
+    else if (timeRange === '1m') targetDate.setMonth(targetDate.getMonth() - 1);
+    else if (timeRange === '3m') targetDate.setMonth(targetDate.getMonth() - 3);
+    else if (timeRange === '6m') targetDate.setMonth(targetDate.getMonth() - 6);
+    else if (timeRange === '1y') targetDate.setFullYear(targetDate.getFullYear() - 1);
+    else if (timeRange === '3y') targetDate.setFullYear(targetDate.getFullYear() - 3);
+    else if (timeRange === '5y') targetDate.setFullYear(targetDate.getFullYear() - 5);
+    else if (timeRange === '10y') targetDate.setFullYear(targetDate.getFullYear() - 10);
+    else if (timeRange === '20y') targetDate.setFullYear(targetDate.getFullYear() - 20);
+
+    const targetDateStr = targetDate.toISOString().split('T')[0];
+    const startIndex = chartData.findIndex(d => d.date >= targetDateStr);
     
-    if (timeRange === '1w') daysToKeep = 5;
-    else if (timeRange === '1m') daysToKeep = 22;
-    else if (timeRange === '3m') daysToKeep = 65;
-    else if (timeRange === '6m') daysToKeep = 130;
-    else if (timeRange === '1y') daysToKeep = 250;
-    
-    return chartData.slice(Math.max(0, chartData.length - daysToKeep));
+    if (startIndex === -1) return chartData;
+    return chartData.slice(startIndex);
   }, [chartData, timeRange]);
+
+  const coverageDays = useMemo(() => {
+    if (!chartData || chartData.length === 0) return 0;
+    const firstDate = new Date(chartData[0].date);
+    const lastDate = new Date(chartData[chartData.length - 1].date);
+    return (lastDate - firstDate) / (1000 * 3600 * 24);
+  }, [chartData]);
 
   // 计算显示区间的最值，优化 Y 轴显示
   const domain = useMemo(() => {
@@ -90,6 +106,44 @@ export function Chart({ data, trades = [], showTrades = false }) {
           >
             1年
           </button>
+          {coverageDays >= 365 * 3 && (
+            <button 
+              className={`time-btn ${timeRange === '3y' ? 'active' : ''}`}
+              onClick={() => setTimeRange('3y')}
+            >
+              3年
+            </button>
+          )}
+          {coverageDays >= 365 * 5 && (
+            <button 
+              className={`time-btn ${timeRange === '5y' ? 'active' : ''}`}
+              onClick={() => setTimeRange('5y')}
+            >
+              5年
+            </button>
+          )}
+          {coverageDays >= 365 * 10 && (
+            <button 
+              className={`time-btn ${timeRange === '10y' ? 'active' : ''}`}
+              onClick={() => setTimeRange('10y')}
+            >
+              10年
+            </button>
+          )}
+          {coverageDays >= 365 * 20 && (
+            <button 
+              className={`time-btn ${timeRange === '20y' ? 'active' : ''}`}
+              onClick={() => setTimeRange('20y')}
+            >
+              20年
+            </button>
+          )}
+          <button 
+            className={`time-btn ${timeRange === 'all' ? 'active' : ''}`}
+            onClick={() => setTimeRange('all')}
+          >
+            全部
+          </button>
         </div>
       </div>
       
@@ -112,8 +166,8 @@ export function Chart({ data, trades = [], showTrades = false }) {
             contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-lg)' }}
             labelStyle={{ color: 'var(--text-secondary)', marginBottom: '8px' }}
             formatter={(value, name, props) => {
-              if (name === '买入点') return [`${value.toFixed(2)} (量: ${props.payload.buyGrams?.toFixed(2)}g)`, name];
-              if (name === '卖出点') return [`${value.toFixed(2)} (量: ${props.payload.sellGrams?.toFixed(2)}g)`, name];
+              if (name === '买入点') return [`${value.toFixed(2)} (量: ${props.payload.buyGrams?.toFixed(2)})`, name];
+              if (name === '卖出点') return [`${value.toFixed(2)} (量: ${props.payload.sellGrams?.toFixed(2)})`, name];
               return [typeof value === 'number' ? value.toFixed(2) : value, name];
             }}
           />

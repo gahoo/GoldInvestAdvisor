@@ -7,7 +7,8 @@ export function BacktestPanel({
   tradeFrequency, setTradeFrequency,
   showTradePoints, setShowTradePoints,
   enableLadderOrders, setEnableLadderOrders,
-  orderValidity, setOrderValidity
+  orderValidity, setOrderValidity,
+  backtestRange, setBacktestRange
 }) {
 
 
@@ -38,6 +39,14 @@ export function BacktestPanel({
         </div>
         
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <select value={backtestRange} onChange={e => setBacktestRange(e.target.value)} style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
+            <option value="max">时间范围: 全部历史</option>
+            <option value="20y">近20年回测</option>
+            <option value="10y">近10年回测</option>
+            <option value="5y">近5年回测</option>
+            <option value="3y">近3年回测</option>
+            <option value="1y">近1年回测</option>
+          </select>
           <select value={tradeFrequency} onChange={e => setTradeFrequency(e.target.value)} style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
             <option value="weekly">每周最多一笔</option>
             <option value="twice_weekly">每周最多两笔</option>
@@ -94,7 +103,7 @@ export function BacktestPanel({
             <div className="indicator-title">期末持仓市值</div>
           </div>
           <div className="indicator-value">¥ {result.finalValue.toFixed(2)}</div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>当前剩余持仓: {result.totalGrams.toFixed(2)} g</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>当前剩余持仓数量: {result.totalGrams.toFixed(2)}</div>
         </div>
 
         <div className="indicator-card active">

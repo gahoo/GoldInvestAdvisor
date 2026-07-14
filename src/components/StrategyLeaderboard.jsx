@@ -365,7 +365,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                       <span className="micro-tag">模:{row.paramsSnapshot.buyMode === 'dynamic' ? '动态倍率' : '固定克数'}</span>
                       {row.paramsSnapshot.enableLadderOrders && <span className="micro-tag">阶梯:开</span>}
                       <span className="micro-tag">期:{row.paramsSnapshot.orderValidity}天</span>
-                      <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}g</span>
+                      <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}</span>
                       {row.paramsSnapshot.sellFee !== undefined && <span className="micro-tag">费:{row.paramsSnapshot.sellFee * 100}%</span>}
                     </div>
                   )}
@@ -559,7 +559,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                           <span className="micro-tag">模:{row.paramsSnapshot.buyMode === 'dynamic' ? '动态倍率' : '固定克数'}</span>
                           {row.paramsSnapshot.enableLadderOrders && <span className="micro-tag">阶梯:开</span>}
                           <span className="micro-tag">期:{row.paramsSnapshot.orderValidity}天</span>
-                          <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}g</span>
+                          <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}</span>
                           {row.paramsSnapshot.sellFee !== undefined && <span className="micro-tag">费:{row.paramsSnapshot.sellFee * 100}%</span>}
                         </div>
                       )}

@@ -282,5 +282,6 @@ export function calculateAllIndicators(data, options = {}) {
     fib,
     calendar,
     drawdown,
+    chartData: data, // 移除数量限制，全量传递，由视图层进行动态裁剪
   };
 }

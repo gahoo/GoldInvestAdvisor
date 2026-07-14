@@ -76,9 +76,9 @@ function TradeTable({ trades }) {
                   <span style={{ color: 'var(--text-secondary)' }}>成交价</span>
                   <span style={{ fontWeight: '500' }}>¥{t.price.toFixed(2)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>成交量</span>
-                  <span style={{ fontWeight: '500' }}>{t.grams.toFixed(2)}g</span>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>数量</span>
+                  <span style={{ fontWeight: '500' }}>{t.grams.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>单笔金额</span>
@@ -106,7 +106,7 @@ function TradeTable({ trades }) {
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>期后持仓</span>
-                  <span style={{ fontWeight: '500' }}>{t.holdings ? t.holdings.toFixed(2) + 'g' : '-'}</span>
+                  <span style={{ fontWeight: '500' }}>{t.holdings ? t.holdings.toFixed(2) : '-'}</span>
                 </div>
               </div>
               <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
@@ -123,12 +123,12 @@ function TradeTable({ trades }) {
                 <th style={{ padding: '12px 8px' }}>日期</th>
                 <th style={{ padding: '12px 8px' }}>类型</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>成交价</th>
-                <th style={{ padding: '12px 8px', textAlign: 'right' }}>成交量(g)</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }}>成交量</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>单笔金额</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>手续费</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>交易收益</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>收益率</th>
-                <th style={{ padding: '12px 8px', textAlign: 'right' }}>期后持仓(g)</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }}>期后持仓</th>
                 <th style={{ padding: '12px 8px' }}>原因</th>
               </tr>
             </thead>

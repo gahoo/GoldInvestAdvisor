@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { parse } from 'mathjs';
-import { fetchGoldData, fetchMacroData, fetchHistoricalMacroData, mergeMacroIntoGoldData } from './utils/api';
+import { dataManager } from './services/data/DataManager';
+import { fetchMacroData, fetchHistoricalMacroData, mergeMacroIntoGoldData } from './utils/api';
+import { dbStore } from './services/storage/IndexedDBStore';
 import { calculateAllIndicators } from './utils/indicators';
 import { BUILT_IN_BUY_STRATEGIES, BUILT_IN_SELL_STRATEGIES } from './utils/builtin_formulas';
 import { Tooltip } from './components/Tooltip';
@@ -12,8 +14,12 @@ import TradeTable from './components/TradeTable';
 import StrategyLeaderboard from './components/StrategyLeaderboard';
 import { StrategyEditor } from './components/StrategyEditor';
 import { ConfirmModal } from './components/ConfirmModal';
+import { TopBar } from './components/DataManagement/TopBar';
 
 function App() {
+  const [currentSymbolConfig, setCurrentSymbolConfig] = useState({
+    source: 'ccb', symbol: 'gold', assetType: 'commodity', name: '黄金(建行)', range: 'max'
+  });
   const [data, setData] = useState([]);
   const [indicators, setIndicators] = useState(null);
   const [macro, setMacro] = useState(null);
@@ -31,6 +37,7 @@ function App() {
   const allowSell = sellStrategies.length > 0;
   const [minTradeVolume, setMinTradeVolume] = useState(1);
   const [bottomTab, setBottomTab] = useState('trades'); // 'trades' | 'leaderboard'
+  const [backtestRange, setBacktestRange] = useState('max');
   const [error, setError] = useState(null);
 
   const [customBuyStrategies, setCustomBuyStrategies] = useState(() => {
@@ -205,29 +212,59 @@ function App() {
     return buyOnlyResults.reduce((best, curr) => curr.annualizedReturn > best.annualizedReturn ? curr : best).buyStrategy;
   }, [strategyLeaderboardData]);
 
+  const lastFetchKey = useRef(null);
+
   useEffect(() => {
+    const fetchKey = `${currentSymbolConfig.source}-${currentSymbolConfig.symbol}-${currentSymbolConfig.range}`;
+    // 如果只是因为名称更新导致的 currentSymbolConfig 变化，无需重新拉取数据
+    if (lastFetchKey.current === fetchKey && data.length > 0) {
+      return;
+    }
+    lastFetchKey.current = fetchKey;
+
+    // 切换数据源时清空缓存的数据
+    setData([]);
+    setIndicators(null);
+    setError(null);
+
     Promise.all([
-      fetchGoldData(),
+      dataManager.fetchData({ 
+        source: currentSymbolConfig.source, 
+        symbol: currentSymbolConfig.symbol, 
+        assetType: currentSymbolConfig.assetType, 
+        interval: '1d', 
+        adj: 'unadj',
+        range: currentSymbolConfig.range || 'max'
+      }),
       fetchHistoricalMacroData('10y')
-    ]).then(([goldResult, macroHistoryResult]) => {
-      if (goldResult.length < 60) {
+    ]).then(([goldData, macroHistoryResult]) => {
+      if (goldData.length < 60) {
         throw new Error('历史数据不足 60 条，无法进行指标计算。');
       }
       
-      let finalData = goldResult;
+      // 合并历史宏观数据到金价数据中，供宏观策略回测使用
+      let finalData = goldData;
       if (macroHistoryResult) {
-        finalData = mergeMacroIntoGoldData(goldResult, macroHistoryResult);
+        finalData = mergeMacroIntoGoldData(goldData, macroHistoryResult);
       }
+      
+      // 若后端返回了标准名称且不等于当前名称，则更新
+      if (goldData.name && goldData.name !== currentSymbolConfig.name) {
+        setCurrentSymbolConfig(prev => ({ ...prev, name: goldData.name }));
+      }
+
       setData(finalData);
     }).catch(err => {
       setError(err.message);
     });
 
-    // 依然保留获取最新一天数据用于实时指标面板展示
+    // 获取最新一天宏观数据用于实时指标面板展示
     fetchMacroData().then(res => {
       if (res) setMacro(res);
+    }).catch(err => {
+      console.error("获取宏观数据失败:", err);
     });
-  }, []);
+  }, [currentSymbolConfig]);
 
   useEffect(() => {
     if (data.length >= 60) {
@@ -274,11 +311,23 @@ function App() {
     if (!data || data.length === 0 || !indicators) return null;
     const allowSell = sellStrategies.length > 0;
     try {
-      return runBacktest(data, strategy, baseGrams, { buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume, enableLadderOrders, orderValidity });
+      // 根据 backtestRange 截取时间窗口
+      let daysToKeep = data.length;
+      if (backtestRange === '1y') daysToKeep = 250;
+      else if (backtestRange === '3y') daysToKeep = 750;
+      else if (backtestRange === '5y') daysToKeep = 1250;
+      else if (backtestRange === '10y') daysToKeep = 2500;
+      else if (backtestRange === '20y') daysToKeep = 5000;
+      
+      const rangeData = data.slice(Math.max(0, data.length - daysToKeep));
+
+      // 严格剔除未固化的盘中数据，确保回测一致性
+      const backtestData = rangeData.filter(d => d.isFinal);
+      return runBacktest(backtestData, strategy, baseGrams, { buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume, enableLadderOrders, orderValidity });
     } catch (e) {
       return { _error: e.toString() };
     }
-  }, [data, strategy, baseGrams, buyMode, tradeFrequency, atrPeriod, sellStrategies, sellFee, minTradeVolume, enableLadderOrders, orderValidity, indicators]);
+  }, [data, strategy, baseGrams, buyMode, tradeFrequency, atrPeriod, sellStrategies, sellFee, minTradeVolume, enableLadderOrders, orderValidity, indicators, backtestRange]);
 
   if (error) {
     return (
@@ -296,6 +345,10 @@ function App() {
 
   return (
     <div className="app-container">
+      <TopBar 
+        currentSymbolConfig={currentSymbolConfig} 
+        onSelectSymbol={setCurrentSymbolConfig} 
+      />
       <ConfirmModal 
         {...confirmDialog} 
         onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} 
@@ -519,7 +572,10 @@ function App() {
             <div className="dashboard-grid">
               <div className={`indicator-card ${isActive('price') ? 'active' : 'dimmed'}`}>
               <div className="indicator-header">
-                <div className="indicator-title">当前金价 (CNY/g)</div>
+                <div className="indicator-title">
+                  {currentSymbolConfig.assetType === 'fund' ? '最新净值' : '当前价格'}
+                  {currentSymbolConfig.assetType === 'commodity' ? ' (CNY/g)' : currentSymbolConfig.assetType === 'fund' ? '' : ' (本币)'}
+                </div>
               </div>
               <div className="indicator-value">{indicators.currentPrice.toFixed(2)}</div>
             </div>
@@ -625,6 +681,8 @@ function App() {
               setEnableLadderOrders={setEnableLadderOrders}
               orderValidity={orderValidity}
               setOrderValidity={setOrderValidity}
+              backtestRange={backtestRange}
+              setBacktestRange={setBacktestRange}
             />
           )}
         </div>
@@ -677,7 +735,7 @@ function App() {
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>基础定投克数 (g)</span>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>基础单笔数量 ({currentSymbolConfig.assetType === 'commodity' ? 'g' : '份/股'})</span>
               <input 
                 type="number" 
                 value={baseGrams} 
@@ -688,7 +746,7 @@ function App() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>最低买卖量限制 (g)</span>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>最低买卖量限制 ({currentSymbolConfig.assetType === 'commodity' ? 'g' : '份/股'})</span>
               <input 
                 type="number" 
                 value={minTradeVolume} 
@@ -705,14 +763,18 @@ function App() {
                   {advice.orders.map((o, idx) => (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 8px', backgroundColor: 'var(--bg-color)', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
                       <span style={{ color: 'var(--color-down)', fontWeight: 'bold' }}>{o.label || `档位 ${idx + 1}`}</span>
-                      <span>挂单价: <strong style={{ color: 'var(--accent-gold)' }}>¥{o.price.toFixed(2)}</strong></span>
-                      <span>买入: {o.grams.toFixed(2)} g ({(o.multiplier || 0).toFixed(2)}x)</span>
+                      <div>
+                        <span className="micro-tag">基:{o.params?.baseGrams}</span>
+                        <span>买入: {o.grams.toFixed(2)} {currentSymbolConfig.assetType === 'commodity' ? '克' : '份/股'} ({(o.multiplier || 0).toFixed(2)}x)</span>
+                      </div>
                     </div>
                   ))}
                 </div>
                 <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed var(--border-color)', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '0.85rem' }}>
-                  <span>总计预期挂单:</span>
-                  <span>{advice.grams.toFixed(2)} g (共 {advice.orders.length} 档)</span>
+                  <div className="advice-value buy-advice">
+                    <span>买入</span>
+                    <span>{advice.grams.toFixed(2)} {currentSymbolConfig.assetType === 'commodity' ? '克' : '份/股'} (共 {advice.orders.length} 档)</span>
+                  </div>
                 </div>
                 <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5', fontSize: '0.85rem' }}>
                   {advice.reason}
@@ -723,15 +785,19 @@ function App() {
                 <div className="advice-box">
                   <div className="advice-label">🎯 测算挂单买价</div>
                   <div className="advice-value highlight">{advice?.targetPrice.toFixed(2)}</div>
-                  <div className="advice-sub">元/克</div>
+                  <div className="advice-sub">
+                    {currentSymbolConfig.assetType === 'commodity' ? 'CNY/g' : currentSymbolConfig.assetType === 'fund' ? '单位净值' : '本币价格'}
+                  </div>
                 </div>
 
                 <div className="advice-box">
-                  <div className="advice-label">⚖️ 测算购入克数</div>
-                  <div className="advice-value">
-                    {advice?.grams.toFixed(2)} g 
-                    <span style={{ fontSize: '1rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                      ({advice?.multiplier.toFixed(2)}x)
+                  <div className="advice-value sell-advice">
+                    <span>{advice?.multiplier > 0 ? '买入' : '操作'}</span>
+                    <span>
+                      {advice?.grams.toFixed(2)} {currentSymbolConfig.assetType === 'commodity' ? '克' : '份/股'} 
+                      <span style={{ fontSize: '1rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                        ({advice?.multiplier.toFixed(2)}x)
+                      </span>
                     </span>
                   </div>
                   <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5' }}>
