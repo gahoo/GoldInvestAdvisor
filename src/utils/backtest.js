@@ -21,11 +21,12 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     tradeFrequency = 'weekly',
     atrPeriod = 14,
     allowSell = false,
-    sellFee = 0.001,
+    sellFee = 0.0,
     sellStrategies = [],
-    minTradeVolume = 0.1,
+    minTradeVolume = 0,
+    lotSize = 0.01,
     enableLadderOrders = false,
-    orderValidity = 6
+    orderValidity = 5
   } = options;
 
   if (!data || data.length < 60) return null;
@@ -81,8 +82,14 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     if (allowSell && totalGrams >= 0.01) {
       const sellAdvice = evaluateSellStrategy(indicators, totalGrams, averageCost, sellStrategies);
       if (sellAdvice.shouldSell) {
-        const sellGrams = totalGrams * sellAdvice.sellRatio;
+        let sellGrams = totalGrams * sellAdvice.sellRatio;
         
+        // 当不是 100% 清仓且有步进限制时，按步进单位向下取整
+        if (lotSize > 0 && sellAdvice.sellRatio < 1) {
+          sellGrams = Math.floor(sellGrams / lotSize) * lotSize;
+          sellGrams = Number(sellGrams.toFixed(6));
+        }
+
         if (sellGrams >= minTradeVolume) {
           // 明确假设：在收到前一日收盘后的卖出信号后，于次日（即 currentData 当日）收盘时执行卖出。
           const sellPrice = currentData.close; 
@@ -144,6 +151,14 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
         newOrders = newOrders.map(o => ({
            ...o,
            grams: baseGrams * (o.multiplier / totalMulti)
+        }));
+      }
+
+      // 应用 lotSize 取整
+      if (lotSize > 0) {
+        newOrders = newOrders.map(o => ({
+          ...o,
+          grams: Number((Math.floor(o.grams / lotSize) * lotSize).toFixed(6))
         }));
       }
       

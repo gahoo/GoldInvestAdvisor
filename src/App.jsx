@@ -36,6 +36,7 @@ function App() {
   const [sellStrategies, setSellStrategies] = useState([]);
   const allowSell = sellStrategies.length > 0;
   const [minTradeVolume, setMinTradeVolume] = useState(1);
+  const [lotSize, setLotSize] = useState(0.01);
   const [bottomTab, setBottomTab] = useState('trades'); // 'trades' | 'leaderboard'
   const [backtestRange, setBacktestRange] = useState('max');
   const [error, setError] = useState(null);
@@ -153,7 +154,7 @@ function App() {
         if (!leaderboardCacheRef.current.has(cacheKey)) {
           const result = runBacktest(data, buyStrat, baseGrams, { 
             buyMode, tradeFrequency, atrPeriod, 
-            allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume, enableLadderOrders, orderValidity
+            allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume, lotSize, enableLadderOrders, orderValidity
           });
           
           if (result && result.trades) {
@@ -215,6 +216,19 @@ function App() {
   const lastFetchKey = useRef(null);
 
   useEffect(() => {
+    // 根据资产类型推断 lotSize
+    if (currentSymbolConfig.assetType === 'commodity') {
+      setLotSize(0.01);
+    } else if (currentSymbolConfig.assetType === 'fund') {
+      setLotSize(1);
+    } else if (currentSymbolConfig.assetType === 'stock') {
+      if (currentSymbolConfig.symbol.endsWith('.SS') || currentSymbolConfig.symbol.endsWith('.SZ')) {
+        setLotSize(100);
+      } else {
+        setLotSize(1);
+      }
+    }
+
     const fetchKey = `${currentSymbolConfig.source}-${currentSymbolConfig.symbol}-${currentSymbolConfig.range}`;
     // 如果只是因为名称更新导致的 currentSymbolConfig 变化，无需重新拉取数据
     if (lastFetchKey.current === fetchKey && data.length > 0) {
@@ -323,11 +337,11 @@ function App() {
 
       // 严格剔除未固化的盘中数据，确保回测一致性
       const backtestData = rangeData.filter(d => d.isFinal);
-      return runBacktest(backtestData, strategy, baseGrams, { buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume, enableLadderOrders, orderValidity });
+      return runBacktest(backtestData, strategy, baseGrams, { buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume, lotSize, enableLadderOrders, orderValidity });
     } catch (e) {
       return { _error: e.toString() };
     }
-  }, [data, strategy, baseGrams, buyMode, tradeFrequency, atrPeriod, sellStrategies, sellFee, minTradeVolume, enableLadderOrders, orderValidity, indicators, backtestRange]);
+  }, [data, strategy, baseGrams, buyMode, tradeFrequency, atrPeriod, sellStrategies, sellFee, minTradeVolume, lotSize, enableLadderOrders, orderValidity, indicators, backtestRange]);
 
   if (error) {
     return (
@@ -745,13 +759,24 @@ function App() {
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>最低买卖量限制 ({currentSymbolConfig.assetType === 'commodity' ? 'g' : '份/股'})</span>
               <input 
                 type="number" 
                 value={minTradeVolume} 
                 onChange={e => setMinTradeVolume(Number(e.target.value) || 0)} 
                 min="0" step="0.1" 
+                style={{ width: '70px', padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', textAlign: 'right' }} 
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>交易步进单位 ({currentSymbolConfig.assetType === 'commodity' ? 'g' : '份/股'})</span>
+              <input 
+                type="number" 
+                value={lotSize} 
+                onChange={e => setLotSize(Number(e.target.value) || 0)} 
+                min="0" step="0.01" 
                 style={{ width: '70px', padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', textAlign: 'right' }} 
               />
             </div>
