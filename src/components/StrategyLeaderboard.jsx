@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 
-const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrategies, leaderboardBuyFilter, setLeaderboardBuyFilter, allBuyOptions, allSellOptions, leaderboardSellFilter, setLeaderboardSellFilter, getOptionLabelBuy, getOptionLabelSell }) => {
+const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrategies, currentParams, leaderboardBuyFilter, setLeaderboardBuyFilter, allBuyOptions, allSellOptions, leaderboardSellFilter, setLeaderboardSellFilter, getOptionLabelBuy, getOptionLabelSell, pinnedRowKeys = [], togglePin }) => {
   const [sortField, setSortField] = useState('annualizedReturn');
   const [sortOrder, setSortOrder] = useState('desc');
   const [filters, setFilters] = useState({});
@@ -9,6 +9,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
   const [sellFilter, setSellFilter] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [showOnlyPinned, setShowOnlyPinned] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
@@ -59,6 +60,8 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
   }, [data]);
 
   const filteredData = data.filter(row => {
+    if (showOnlyPinned && !pinnedRowKeys.includes(row.cacheKey)) return false;
+
     // Text Filters
     if (buyFilter) {
       const buyName = getBuyStrategyName(row.buyStrategy, row);
@@ -74,6 +77,24 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
           return sName.includes(sellFilter) || s.includes(sellFilter);
         });
         if (!hasMatch) return false;
+      }
+    }
+
+    // Desktop multi-select filters
+    if (leaderboardBuyFilter && leaderboardBuyFilter.length > 0) {
+      if (!leaderboardBuyFilter.includes(row.buyStrategy)) return false;
+    }
+    
+    if (leaderboardSellFilter && leaderboardSellFilter.length > 0) {
+      if (leaderboardSellFilter.includes('NONE')) {
+        if (leaderboardSellFilter.length === 1) {
+          if (row.sellStrategies.length > 0) return false;
+        } else {
+          return false; // Impossible condition: NONE + other strategies
+        }
+      } else {
+        const matchesAll = leaderboardSellFilter.every(s => row.sellStrategies.includes(s));
+        if (!matchesAll) return false;
       }
     }
 
@@ -198,6 +219,15 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
             font-weight: bold;
             color: var(--text-primary);
           }
+          .micro-tag {
+            font-size: 0.7rem;
+            padding: 2px 4px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+          }
         `}
       </style>
 
@@ -225,6 +255,12 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
               <span style={{ marginLeft: '8px' }}>{mobileFilterOpen ? '收起控制面板' : '展开漏斗进行筛选排序'}</span>
             </summary>
             <div style={{ padding: '16px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold' }}>
+                  <input type="checkbox" checked={showOnlyPinned} onChange={e => setShowOnlyPinned(e.target.checked)} style={{ marginRight: '8px', transform: 'scale(1.2)' }} />
+                  ⭐ 只显示收藏 (Pinned)
+                </label>
+              </div>
               <div>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>买入策略过滤</label>
                 <input 
@@ -290,18 +326,27 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
           <div className="mobile-card-list">
             {sortedData.map((row, idx) => {
               const isCurrent = currentStrategy === row.buyStrategy && 
-                                (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort());
+                                (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
+                                (!row.paramsSnapshot || !currentParams || JSON.stringify(row.paramsSnapshot) === JSON.stringify(currentParams));
               return (
                 <div 
                   key={idx} 
                   className={`leaderboard-card ${isCurrent ? 'current-card' : ''}`}
-                  onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies); }}
+                  onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies, row.paramsSnapshot); }}
+                  style={{ position: 'relative' }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '12px' }}>
+                  <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+                    <span 
+                      onClick={(e) => { e.stopPropagation(); togglePin(row.cacheKey); }} 
+                      style={{ cursor: 'pointer', fontSize: '1.4rem', color: pinnedRowKeys.includes(row.cacheKey) ? 'var(--accent-gold)' : 'var(--text-secondary)' }}
+                    >
+                      {pinnedRowKeys.includes(row.cacheKey) ? '⭐' : '☆'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '12px', paddingRight: '30px' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
                       {getBuyStrategyName(row.buyStrategy, row)}
                     </div>
-                    {isCurrent && <span style={{ fontSize: '0.8rem', color: 'var(--accent-gold)', fontWeight: 'bold' }}>正在使用 ✅</span>}
                   </div>
                   
                   <div style={{ marginBottom: '16px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -314,10 +359,25 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                     ))}
                   </div>
 
+                  {row.paramsSnapshot && (
+                    <div style={{ marginBottom: '16px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      <span className="micro-tag">频:{row.paramsSnapshot.tradeFrequency === 'daily' ? '每日' : row.paramsSnapshot.tradeFrequency === 'weekly' ? '每周' : row.paramsSnapshot.tradeFrequency === 'twice_weekly' ? '周二/四' : row.paramsSnapshot.tradeFrequency === 'biweekly' ? '双周' : '每月'}</span>
+                      <span className="micro-tag">模:{row.paramsSnapshot.buyMode === 'dynamic' ? '动态倍率' : '固定克数'}</span>
+                      {row.paramsSnapshot.enableLadderOrders && <span className="micro-tag">阶梯:开</span>}
+                      <span className="micro-tag">期:{row.paramsSnapshot.orderValidity}天</span>
+                      <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}g</span>
+                      {row.paramsSnapshot.sellFee !== undefined && <span className="micro-tag">费:{row.paramsSnapshot.sellFee * 100}%</span>}
+                    </div>
+                  )}
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.85rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>年化收益</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>简单年化</span>
                       <span style={{ fontWeight: 'bold', color: row.annualizedReturn === null ? 'var(--text-secondary)' : (row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)') }}>{formatDisplayValue('annualizedReturn', row.annualizedReturn)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>XIRR</span>
+                      <span style={{ fontWeight: 'bold', color: row.xirr === null || isNaN(row.xirr) ? 'var(--text-secondary)' : (row.xirr >= 0 ? 'var(--color-up)' : 'var(--color-down)') }}>{row.xirr === null || isNaN(row.xirr) ? '-' : (row.xirr * 100).toFixed(2) + '%'}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>最大回撤</span>
@@ -351,6 +411,15 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left', backgroundColor: 'var(--bg-color)' }}>
+                <th 
+                  style={{ padding: '12px 4px', width: '50px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => setShowOnlyPinned(!showOnlyPinned)}
+                  title={showOnlyPinned ? "取消只看收藏" : "点击只看收藏"}
+                >
+                  <div style={{ fontSize: '1.2rem', color: showOnlyPinned ? 'var(--accent-gold)' : 'var(--text-secondary)' }}>
+                    {showOnlyPinned ? '⭐' : '☆'}
+                  </div>
+                </th>
                 <th style={{ padding: '12px 8px', whiteSpace: 'nowrap', verticalAlign: 'top', minWidth: '180px' }}>
                   <div style={{ marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>买入策略 (作为基准)</div>
                   <MultiSelectDropdown 
@@ -365,16 +434,25 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                   <div style={{ marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>卖出策略 (自由组合)</div>
                   <MultiSelectDropdown 
                     label="卖出策略"
-                    options={allSellOptions}
+                    options={['NONE', ...allSellOptions]}
                     selectedOptions={leaderboardSellFilter}
-                    getOptionLabel={getOptionLabelSell}
+                    getOptionLabel={opt => opt === 'NONE' ? '【无卖出策略】' : (getOptionLabelSell ? getOptionLabelSell(opt) : opt)}
                     onChange={setLeaderboardSellFilter}
                   />
                 </th>
                 
+                <th style={{ padding: '12px 8px', minWidth: '140px', verticalAlign: 'top' }}>
+                  <div style={{ marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>参数组合</div>
+                </th>
+
                 <th style={{ padding: '12px 8px', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={() => handleSort('annualizedReturn')}>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>年化收益 {renderSortArrow('annualizedReturn')}</div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>简单年化 {renderSortArrow('annualizedReturn')}</div>
                   {renderSlider('annualizedReturn')}
+                </th>
+                
+                <th style={{ padding: '12px 8px', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={() => handleSort('xirr')}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>XIRR {renderSortArrow('xirr')}</div>
+                  {renderSlider('xirr')}
                 </th>
                 
                 <th style={{ padding: '12px 8px', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={() => handleSort('absoluteReturn')}>
@@ -426,23 +504,33 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
             <tbody>
               {sortedData.map((row, idx) => {
                 const isCurrent = currentStrategy === row.buyStrategy && 
-                                  (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort());
+                                  (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
+                                  (!row.paramsSnapshot || !currentParams || JSON.stringify(row.paramsSnapshot) === JSON.stringify(currentParams));
                 
                 return (
                   <tr 
                     key={idx} 
                     className={`leaderboard-row ${isCurrent ? 'current-row' : ''}`}
-                    onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies); }}
+                    onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies, row.paramsSnapshot); }}
                     style={{ 
                       borderBottom: '1px solid var(--border-color)',
                       backgroundColor: isCurrent ? 'rgba(212, 175, 55, 0.15)' : 'transparent',
                       transition: 'background-color 0.2s',
-                      cursor: isCurrent ? 'default' : 'pointer'
+                      cursor: 'pointer'
                     }}
                   >
+                    <td style={{ padding: '12px 4px', textAlign: 'center' }}>
+                      <span 
+                        onClick={(e) => { e.stopPropagation(); togglePin(row.cacheKey); }} 
+                        style={{ cursor: 'pointer', fontSize: '1.2rem', color: pinnedRowKeys.includes(row.cacheKey) ? 'var(--accent-gold)' : 'var(--text-secondary)' }}
+                      >
+                        {pinnedRowKeys.includes(row.cacheKey) ? '⭐' : '☆'}
+                      </span>
+                    </td>
                     <td style={{ padding: '12px 8px', fontWeight: '500', whiteSpace: 'nowrap' }}>
                       <span style={{ whiteSpace: 'nowrap' }}>
                         {getBuyStrategyName(row.buyStrategy, row)}
+                        {isCurrent && <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: 'var(--accent-gold)' }}>(当前)</span>}
                       </span>
                     </td>
                     <td style={{ padding: '12px 8px' }}>
@@ -464,8 +552,23 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                         </div>
                       )}
                     </td>
+                    <td style={{ padding: '12px 8px' }}>
+                      {row.paramsSnapshot && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '180px' }}>
+                          <span className="micro-tag">频:{row.paramsSnapshot.tradeFrequency === 'daily' ? '每日' : row.paramsSnapshot.tradeFrequency === 'weekly' ? '每周' : row.paramsSnapshot.tradeFrequency === 'twice_weekly' ? '周二/四' : row.paramsSnapshot.tradeFrequency === 'biweekly' ? '双周' : '每月'}</span>
+                          <span className="micro-tag">模:{row.paramsSnapshot.buyMode === 'dynamic' ? '动态倍率' : '固定克数'}</span>
+                          {row.paramsSnapshot.enableLadderOrders && <span className="micro-tag">阶梯:开</span>}
+                          <span className="micro-tag">期:{row.paramsSnapshot.orderValidity}天</span>
+                          <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}g</span>
+                          {row.paramsSnapshot.sellFee !== undefined && <span className="micro-tag">费:{row.paramsSnapshot.sellFee * 100}%</span>}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.annualizedReturn === null ? 'var(--text-secondary)' : (row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
                       {formatDisplayValue('annualizedReturn', row.annualizedReturn)}
+                    </td>
+                    <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.xirr === null || isNaN(row.xirr) ? 'var(--text-secondary)' : (row.xirr >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
+                      {row.xirr === null || isNaN(row.xirr) ? '-' : (row.xirr * 100).toFixed(2) + '%'}
                     </td>
                     <td style={{ padding: '12px 8px', textAlign: 'right', color: row.absoluteReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                       {formatDisplayValue('absoluteReturn', row.absoluteReturn)}

@@ -12,18 +12,20 @@ import { calculateXIRR, calculateSimpleAnnualized } from './math';
  * @param {string} options.buyMode - 'dynamic' | 'fixed'
  * @param {string} options.tradeFrequency - 'weekly' | 'twice_weekly' | 'biweekly' | 'monthly'
  * @param {number} options.atrPeriod - ATR 周期
+ * @param {string} options.orderValidity - 订单有效期（天数）
  * @returns {Object} 回测结果统计
  */
 export function runBacktest(data, strategy, baseGrams, options = {}) {
   const {
-    returnMethod = 'xirr',
     buyMode = 'dynamic',
     tradeFrequency = 'weekly',
     atrPeriod = 14,
     allowSell = false,
-    sellFee = 0.01,
+    sellFee = 0.001,
     sellStrategies = [],
-    minTradeVolume = 0
+    minTradeVolume = 0.1,
+    enableLadderOrders = false,
+    orderValidity = 6
   } = options;
 
   if (!data || data.length < 60) return null;
@@ -47,6 +49,9 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   let lastSignalWeek = -Infinity;
   let currentWeekSignalCount = 0;
   let lastSignalMonth = -Infinity;
+  let activeOrders = []; // 跨日持久化的有效挂单
+  let previousWeekId = -1;
+
 
   // 从第60天开始，让 MA60 和 Fib 指标有足够的数据
   const startIndex = 60;
@@ -60,6 +65,11 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     // +4 是因为 1970-01-01 是周四，调整偏移量使得周一为每周起始
     const currentWeekId = Math.floor((Math.floor(currentDateObj.getTime() / 86400000) + 3) / 7);
     const currentMonthId = currentDateObj.getFullYear() * 12 + currentDateObj.getMonth();
+
+    if (previousWeekId !== -1 && currentWeekId !== previousWeekId) {
+      activeOrders = []; // Bank limit orders expire on Saturday night (cross week)
+    }
+    previousWeekId = currentWeekId;
     
     const historySlice = data.slice(0, i);
     const indicators = calculateAllIndicators(historySlice, { atrPeriod });
@@ -122,21 +132,28 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     if (tradeFrequency === 'biweekly' && currentWeekId < lastSignalWeek + 2) canGenerateSignal = false;
     if (tradeFrequency === 'monthly' && currentMonthId <= lastSignalMonth) canGenerateSignal = false;
 
-    let gramsToBuy = 0;
-    let targetPrice = null;
-    let buyReason = '';
-
     if (canGenerateSignal) {
-      const evaluation = evaluateStrategy(indicators, currentData.macro || null, strategy, baseGrams, currentData.wday);
-      targetPrice = evaluation.targetPrice;
-      buyReason = evaluation.reason;
+      const evaluation = evaluateStrategy(indicators, currentData.macro || null, strategy, baseGrams, currentData.wday, enableLadderOrders);
+      let newOrders = evaluation.orders || [];
       
-      gramsToBuy = buyMode === 'fixed' ? baseGrams : baseGrams * evaluation.multiplier;
-      if (gramsToBuy > 0 && gramsToBuy < minTradeVolume) {
-        gramsToBuy = 0; // 不满足最低交易量，跳过
+      // Remove any 0 gram orders before doing anything else
+      newOrders = newOrders.filter(o => o.grams > 0);
+      
+      if (buyMode === 'fixed') {
+        const totalMulti = newOrders.reduce((sum, o) => sum + o.multiplier, 0) || 1;
+        newOrders = newOrders.map(o => ({
+           ...o,
+           grams: baseGrams * (o.multiplier / totalMulti)
+        }));
+      }
+      
+      const totalGrams = newOrders.reduce((sum, o) => sum + o.grams, 0);
+      if (totalGrams > 0 && totalGrams < minTradeVolume) {
+        newOrders = []; // Total volume is too small
       }
 
-      if (gramsToBuy > 0) {
+      if (newOrders.length > 0) {
+        activeOrders = newOrders.map(o => ({ ...o, reason: evaluation.reason, daysActive: 0 }));
         if (currentWeekId === lastSignalWeek) {
           currentWeekSignalCount += 1;
         } else {
@@ -147,40 +164,54 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
       }
     }
 
-    if (gramsToBuy > 0) {
-      // 撮合逻辑
-      let executionPrice = null;
-      if (currentData.open <= targetPrice) {
-        executionPrice = currentData.open;
-      } else if (currentData.low <= targetPrice) {
-        executionPrice = targetPrice;
-      }
-
-      if (executionPrice !== null) {
-        const cost = executionPrice * gramsToBuy;
-        totalGrams += gramsToBuy;
-        totalBuyAmount += cost;
-        totalCostBasis += cost;
-        averageCost = totalCostBasis / totalGrams;
-        
-        currentCapitalDeployed += cost;
-        if (currentCapitalDeployed > maxCapitalDeployed) {
-          maxCapitalDeployed = currentCapitalDeployed;
+    if (activeOrders.length > 0) {
+      const remainingOrders = [];
+      activeOrders.forEach(order => {
+        let executionPrice = null;
+        if (currentData.open <= order.price) {
+          executionPrice = currentData.open;
+        } else if (currentData.low <= order.price) {
+          executionPrice = order.price;
         }
-        
-        const date = new Date(currentData.date);
-        cashFlows.push({ date, amount: -cost }); // 现金流出
-        
-        trades.push({
-          date: currentData.date,
-          type: 'buy',
-          price: executionPrice,
-          grams: gramsToBuy,
-          cost: cost,
-          holdings: totalGrams,
-          reason: buyReason
-        });
-      }
+
+        if (executionPrice !== null) {
+          const cost = executionPrice * order.grams;
+          totalGrams += order.grams;
+          totalBuyAmount += cost;
+          totalCostBasis += cost;
+          averageCost = totalCostBasis / totalGrams;
+          
+          currentCapitalDeployed += cost;
+          if (currentCapitalDeployed > maxCapitalDeployed) {
+            maxCapitalDeployed = currentCapitalDeployed;
+          }
+          
+          const date = new Date(currentData.date);
+          cashFlows.push({ date, amount: -cost }); // 现金流出
+          
+          trades.push({
+            date: currentData.date,
+            type: 'buy',
+            price: executionPrice,
+            grams: order.grams,
+            cost: cost,
+            holdings: totalGrams,
+            reason: (order.label ? `[${order.label}] ` : '') + order.reason
+          });
+        } else {
+          remainingOrders.push(order);
+        }
+      });
+      
+      const nextOrders = [];
+      remainingOrders.forEach(order => {
+        order.daysActive = (order.daysActive || 0) + 1;
+        const maxDays = parseInt(orderValidity, 10) || 6;
+        if (order.daysActive < maxDays) {
+          nextOrders.push(order);
+        }
+      });
+      activeOrders = nextOrders;
     }
 
     // Daily MTM and Drawdown Tracking
@@ -209,6 +240,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
       winRate: 0,
       absoluteReturn: 0,
       annualizedReturn: 0,
+      xirr: 0,
       maxDrawdown: 0,
       calmarRatio: 0,
       tradeCount: 0,
@@ -236,13 +268,8 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   const netProfit = (finalValue - totalCostBasis) + realizedProfit;
   const absoluteReturn = maxCapitalDeployed > 0 ? netProfit / maxCapitalDeployed : 0;
   
-  let annualizedReturn = 0;
-  if (returnMethod === 'xirr') {
-    const xirrResult = calculateXIRR(cashFlows);
-    annualizedReturn = xirrResult === null ? null : xirrResult;
-  } else {
-    annualizedReturn = calculateSimpleAnnualized(maxCapitalDeployed, maxCapitalDeployed + netProfit, totalDays);
-  }
+  const xirr = calculateXIRR(cashFlows);
+  const annualizedReturn = calculateSimpleAnnualized(maxCapitalDeployed, maxCapitalDeployed + netProfit, totalDays);
 
   // Calculate win rate
   const sellTrades = trades.filter(t => t.type === 'sell');
@@ -265,6 +292,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     winRate,
     absoluteReturn,
     annualizedReturn,
+    xirr,
     maxDrawdown,
     calmarRatio,
     tradeCount: trades.length,

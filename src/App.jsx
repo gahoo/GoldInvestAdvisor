@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { parse } from 'mathjs';
 import { fetchGoldData, fetchMacroData, fetchHistoricalMacroData, mergeMacroIntoGoldData } from './utils/api';
 import { calculateAllIndicators } from './utils/indicators';
@@ -20,9 +20,10 @@ function App() {
   const [strategy, setStrategy] = useState('grid');
   const [baseGrams, setBaseGrams] = useState(1);
   const [atrPeriod, setAtrPeriod] = useState(14);
-  const [returnMethod, setReturnMethod] = useState('xirr');
   const [buyMode, setBuyMode] = useState('dynamic');
   const [tradeFrequency, setTradeFrequency] = useState('weekly');
+  const [enableLadderOrders, setEnableLadderOrders] = useState(false);
+  const [orderValidity, setOrderValidity] = useState(6);
   const [showTradePoints, setShowTradePoints] = useState(true);
   const [activeTab, setActiveTab] = useState('indicators'); // 'indicators' or 'backtest'
   const [sellFee, setSellFee] = useState(0.01);
@@ -47,26 +48,20 @@ function App() {
 
   const allBuyOptions = useMemo(() => [...Object.keys(BUILT_IN_BUY_STRATEGIES), ...customBuyStrategies.map(s => s.id)], [customBuyStrategies]);
   const allSellOptions = useMemo(() => [...Object.keys(BUILT_IN_SELL_STRATEGIES), ...customSellStrategies.map(s => s.id)], [customSellStrategies]);
-  const [leaderboardBuyFilter, setLeaderboardBuyFilter] = useState(allBuyOptions);
-  const [leaderboardSellFilter, setLeaderboardSellFilter] = useState(allSellOptions);
+  const [leaderboardBuyFilter, setLeaderboardBuyFilter] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('leaderboardBuyFilter') || '[]'); } catch { return []; }
+  });
+  const [leaderboardSellFilter, setLeaderboardSellFilter] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('leaderboardSellFilter') || '[]'); } catch { return []; }
+  });
 
   useEffect(() => {
-    setLeaderboardBuyFilter(prev => {
-      const validPrev = prev.filter(o => allBuyOptions.includes(o));
-      const missing = allBuyOptions.filter(o => !validPrev.includes(o) && !localStorage.getItem(`unselected_buy_${o}`));
-      if (validPrev.length === prev.length && missing.length === 0) return prev;
-      return [...validPrev, ...missing];
-    });
-  }, [allBuyOptions]);
+    localStorage.setItem('leaderboardBuyFilter', JSON.stringify(leaderboardBuyFilter));
+  }, [leaderboardBuyFilter]);
 
   useEffect(() => {
-    setLeaderboardSellFilter(prev => {
-      const validPrev = prev.filter(o => allSellOptions.includes(o));
-      const missing = allSellOptions.filter(o => !validPrev.includes(o) && !localStorage.getItem(`unselected_sell_${o}`));
-      if (validPrev.length === prev.length && missing.length === 0) return prev;
-      return [...validPrev, ...missing];
-    });
-  }, [allSellOptions]);
+    localStorage.setItem('leaderboardSellFilter', JSON.stringify(leaderboardSellFilter));
+  }, [leaderboardSellFilter]);
 
   useEffect(() => {
     localStorage.setItem('customBuyStrategies', JSON.stringify(customBuyStrategies));
@@ -96,65 +91,75 @@ function App() {
   };
 
   const [strategyLeaderboardData, setStrategyLeaderboardData] = useState([]);
+  const [pinnedRowKeys, setPinnedRowKeys] = useState([]);
+  const leaderboardCacheRef = useRef(new Map());
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardProgress, setLeaderboardProgress] = useState(0);
 
   useEffect(() => {
+    leaderboardCacheRef.current.clear();
+    setStrategyLeaderboardData([]);
+    setPinnedRowKeys([]);
+  }, [data]);
+
+  useEffect(() => {
     if (!data || data.length === 0) {
-      setStrategyLeaderboardData([]);
-      return;
-    }
-    if (leaderboardBuyFilter.length === 0) {
-      setStrategyLeaderboardData([]);
       return;
     }
 
     const powerSet = (arr) => arr.reduce((subsets, value) => subsets.concat(subsets.map(set => [value, ...set])), [[]]);
-    const sellCombinations = powerSet(leaderboardSellFilter);
-    const totalCombinations = leaderboardBuyFilter.length * sellCombinations.length;
+    const sellCombinations = powerSet(allSellOptions);
+    const totalCombinations = allBuyOptions.length * sellCombinations.length;
     
     if (totalCombinations === 0) {
-      setStrategyLeaderboardData([]);
       return;
     }
 
     setLeaderboardLoading(true);
     setLeaderboardProgress(0);
 
-    const leaderboard = [];
     let buyIdx = 0;
     let sellIdx = 0;
     let cancelled = false;
+
+    const paramsSnapshot = { tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod };
+    const paramsKeyStr = JSON.stringify(paramsSnapshot);
 
     const computeChunk = () => {
       if (cancelled) return;
       
       const chunkEndTime = performance.now() + 15; // 15ms per frame
       while (performance.now() < chunkEndTime) {
-        if (buyIdx >= leaderboardBuyFilter.length) {
-          setStrategyLeaderboardData(leaderboard);
+        if (buyIdx >= allBuyOptions.length) {
+          setStrategyLeaderboardData(Array.from(leaderboardCacheRef.current.values()));
           setLeaderboardLoading(false);
           setLeaderboardProgress(100);
           return;
         }
 
-        const buyStrat = leaderboardBuyFilter[buyIdx];
+        const buyStrat = allBuyOptions[buyIdx];
         const sellStrats = sellCombinations[sellIdx];
         const tempAllowSell = sellStrats.length > 0;
         
-        const result = runBacktest(data, buyStrat, baseGrams, { 
-          returnMethod, buyMode, tradeFrequency, atrPeriod, 
-          allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume 
-        });
-        
-        if (result && result.trades) {
-          leaderboard.push({
-            buyStrategy: buyStrat,
-            sellStrategies: sellStrats,
-            buyName: buyStrat.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === buyStrat)?.name || buyStrat) : buyStrat,
-            sellNames: sellStrats.map(s => s.startsWith('custom_sell_') ? (customSellStrategies.find(c => c.id === s)?.name || s) : s),
-            ...result
+        const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
+
+        if (!leaderboardCacheRef.current.has(cacheKey)) {
+          const result = runBacktest(data, buyStrat, baseGrams, { 
+            buyMode, tradeFrequency, atrPeriod, 
+            allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume, enableLadderOrders, orderValidity
           });
+          
+          if (result && result.trades) {
+            leaderboardCacheRef.current.set(cacheKey, {
+              cacheKey,
+              buyStrategy: buyStrat,
+              sellStrategies: sellStrats,
+              buyName: buyStrat.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === buyStrat)?.name || buyStrat) : buyStrat,
+              sellNames: sellStrats.map(s => s.startsWith('custom_sell_') ? (customSellStrategies.find(c => c.id === s)?.name || s) : s),
+              paramsSnapshot,
+              ...result
+            });
+          }
         }
 
         sellIdx++;
@@ -167,7 +172,13 @@ function App() {
       const computed = buyIdx * sellCombinations.length + sellIdx;
       setLeaderboardProgress(Math.floor((computed / totalCombinations) * 100));
       
-      requestAnimationFrame(computeChunk);
+      if (buyIdx < allBuyOptions.length) {
+        requestAnimationFrame(computeChunk);
+      } else {
+        setStrategyLeaderboardData(Array.from(leaderboardCacheRef.current.values()));
+        setLeaderboardLoading(false);
+        setLeaderboardProgress(100);
+      }
     };
 
     requestAnimationFrame(computeChunk);
@@ -175,7 +186,16 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [data, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies]);
+  }, [data, baseGrams, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, enableLadderOrders, orderValidity, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies]);
+
+  const togglePin = (key) => {
+    setPinnedRowKeys(prev => {
+      if (prev.includes(key)) {
+        return prev.filter(k => k !== key);
+      }
+      return [...prev, key];
+    });
+  };
 
   const bestStrategy = useMemo(() => {
     if (!strategyLeaderboardData || strategyLeaderboardData.length === 0) return 'grid';
@@ -240,18 +260,25 @@ function App() {
 
   const advice = useMemo(() => {
     if (!indicators) return null;
-    const adv = evaluateStrategy(indicators, macro, strategy, baseGrams, new Date().getDay() || 7);
+    const adv = evaluateStrategy(indicators, macro, strategy, baseGrams, new Date().getDay() || 7, enableLadderOrders);
     if (adv.grams > 0 && adv.grams < minTradeVolume) {
       adv.grams = 0;
       adv.multiplier = 0;
       adv.reason += '（未达到最低买卖量，跳过）';
+      adv.orders = [];
     }
     return adv;
-  }, [indicators, macro, baseGrams, strategy, minTradeVolume]);
+  }, [indicators, macro, baseGrams, strategy, minTradeVolume, enableLadderOrders, orderValidity]);
 
   const backtestResult = useMemo(() => {
-    return runBacktest(data, strategy, baseGrams, { returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume });
-  }, [data, strategy, baseGrams, returnMethod, buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume]);
+    if (!data || data.length === 0 || !indicators) return null;
+    const allowSell = sellStrategies.length > 0;
+    try {
+      return runBacktest(data, strategy, baseGrams, { buyMode, tradeFrequency, atrPeriod, allowSell, sellFee, sellStrategies, minTradeVolume, enableLadderOrders, orderValidity });
+    } catch (e) {
+      return { _error: e.toString() };
+    }
+  }, [data, strategy, baseGrams, buyMode, tradeFrequency, atrPeriod, sellStrategies, sellFee, minTradeVolume, enableLadderOrders, orderValidity, indicators]);
 
   if (error) {
     return (
@@ -588,14 +615,16 @@ function App() {
           ) : (
             <BacktestPanel 
               result={backtestResult} 
-              returnMethod={returnMethod}
-              setReturnMethod={setReturnMethod}
               buyMode={buyMode}
               setBuyMode={setBuyMode}
               tradeFrequency={tradeFrequency}
               setTradeFrequency={setTradeFrequency}
               showTradePoints={showTradePoints}
               setShowTradePoints={setShowTradePoints}
+              enableLadderOrders={enableLadderOrders}
+              setEnableLadderOrders={setEnableLadderOrders}
+              orderValidity={orderValidity}
+              setOrderValidity={setOrderValidity}
             />
           )}
         </div>
@@ -669,24 +698,48 @@ function App() {
               />
             </div>
 
-            <div className="advice-box">
-              <div className="advice-label">🎯 测算挂单买价</div>
-              <div className="advice-value highlight">{advice?.targetPrice.toFixed(2)}</div>
-              <div className="advice-sub">元/克</div>
-            </div>
+            {advice?.orders && advice.orders.length > 1 ? (
+              <div className="advice-box" style={{ gridColumn: 'span 2' }}>
+                <div className="advice-label" style={{ marginBottom: '12px' }}>策略建议 - 阶梯多档挂单</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {advice.orders.map((o, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 8px', backgroundColor: 'var(--bg-color)', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--color-down)', fontWeight: 'bold' }}>{o.label || `档位 ${idx + 1}`}</span>
+                      <span>挂单价: <strong style={{ color: 'var(--accent-gold)' }}>¥{o.price.toFixed(2)}</strong></span>
+                      <span>买入: {o.grams.toFixed(2)} g ({(o.multiplier || 0).toFixed(2)}x)</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed var(--border-color)', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                  <span>总计预期挂单:</span>
+                  <span>{advice.grams.toFixed(2)} g (共 {advice.orders.length} 档)</span>
+                </div>
+                <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5', fontSize: '0.85rem' }}>
+                  {advice.reason}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="advice-box">
+                  <div className="advice-label">🎯 测算挂单买价</div>
+                  <div className="advice-value highlight">{advice?.targetPrice.toFixed(2)}</div>
+                  <div className="advice-sub">元/克</div>
+                </div>
 
-            <div className="advice-box">
-              <div className="advice-label">⚖️ 测算购入克数</div>
-              <div className="advice-value">
-                {advice?.grams.toFixed(2)} g 
-                <span style={{ fontSize: '1rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                  ({advice?.multiplier.toFixed(2)}x)
-                </span>
-              </div>
-              <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5' }}>
-                💡 {advice?.reason}
-              </div>
-            </div>
+                <div className="advice-box">
+                  <div className="advice-label">⚖️ 测算购入克数</div>
+                  <div className="advice-value">
+                    {advice?.grams.toFixed(2)} g 
+                    <span style={{ fontSize: '1rem', fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                      ({advice?.multiplier.toFixed(2)}x)
+                    </span>
+                  </div>
+                  <div className="advice-sub" style={{ marginTop: '12px', color: 'var(--text-primary)', fontWeight: '500', lineHeight: '1.5' }}>
+                    💡 {advice?.reason}
+                  </div>
+                </div>
+              </>
+            )}
             
             <div style={{ marginTop: '30px', padding: '12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
               <strong>⚠️ 免责声明：</strong><br/>
@@ -749,32 +802,33 @@ function App() {
             ) : (
               <StrategyLeaderboard 
                 data={strategyLeaderboardData} 
+                pinnedRowKeys={pinnedRowKeys}
+                togglePin={togglePin}
                 currentStrategy={strategy}
                 currentSellStrategies={allowSell ? sellStrategies : []}
                 leaderboardBuyFilter={leaderboardBuyFilter}
-                setLeaderboardBuyFilter={(newSelection) => {
-                  setLeaderboardBuyFilter(newSelection);
-                  allBuyOptions.forEach(opt => {
-                    if (newSelection.includes(opt)) localStorage.removeItem(`unselected_buy_${opt}`);
-                    else localStorage.setItem(`unselected_buy_${opt}`, '1');
-                  });
-                }}
+                setLeaderboardBuyFilter={setLeaderboardBuyFilter}
                 allBuyOptions={allBuyOptions}
                 allSellOptions={allSellOptions}
                 leaderboardSellFilter={leaderboardSellFilter}
-                setLeaderboardSellFilter={(newSelection) => {
-                  setLeaderboardSellFilter(newSelection);
-                  allSellOptions.forEach(opt => {
-                    if (newSelection.includes(opt)) localStorage.removeItem(`unselected_sell_${opt}`);
-                    else localStorage.setItem(`unselected_sell_${opt}`, '1');
-                  });
-                }}
+                setLeaderboardSellFilter={setLeaderboardSellFilter}
                 getOptionLabelBuy={opt => opt.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === opt)?.name || opt) : (BUILT_IN_BUY_STRATEGIES[opt]?.name || opt)}
                 getOptionLabelSell={opt => opt.startsWith('custom_sell_') ? (customSellStrategies.find(s => s.id === opt)?.name || opt) : (BUILT_IN_SELL_STRATEGIES[opt]?.name || opt)}
-                onApply={(buyStrat, sellStrats) => {
+                onApply={(buyStrat, sellStrats, paramsSnapshot) => {
                   setStrategy(buyStrat);
                   setSellStrategies(sellStrats);
+                  if (paramsSnapshot) {
+                    if (paramsSnapshot.tradeFrequency) setTradeFrequency(paramsSnapshot.tradeFrequency);
+                    if (paramsSnapshot.buyMode) setBuyMode(paramsSnapshot.buyMode);
+                    if (paramsSnapshot.enableLadderOrders !== undefined) setEnableLadderOrders(paramsSnapshot.enableLadderOrders);
+                    if (paramsSnapshot.orderValidity !== undefined) setOrderValidity(paramsSnapshot.orderValidity);
+                    if (paramsSnapshot.baseGrams !== undefined) setBaseGrams(paramsSnapshot.baseGrams);
+                    if (paramsSnapshot.sellFee !== undefined) setSellFee(paramsSnapshot.sellFee);
+                    if (paramsSnapshot.minTradeVolume !== undefined) setMinTradeVolume(paramsSnapshot.minTradeVolume);
+                    if (paramsSnapshot.atrPeriod !== undefined) setAtrPeriod(paramsSnapshot.atrPeriod);
+                  }
                 }}
+                currentParams={{ tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod }}
               />
             )
           )}

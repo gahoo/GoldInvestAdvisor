@@ -3,18 +3,26 @@ import { Tooltip } from './Tooltip';
 
 export function BacktestPanel({ 
   result, 
-  returnMethod, setReturnMethod,
   buyMode, setBuyMode,
   tradeFrequency, setTradeFrequency,
-  showTradePoints, setShowTradePoints
+  showTradePoints, setShowTradePoints,
+  enableLadderOrders, setEnableLadderOrders,
+  orderValidity, setOrderValidity
 }) {
 
 
-  if (!result) {
+  if (!result || result._error) {
     return (
       <div className="card" style={{ marginTop: '24px' }}>
         <h3 className="section-title">回测结果 (模拟)</h3>
-        <p style={{ color: 'var(--text-secondary)' }}>计算中或数据不足...</p>
+        {result?._error ? (
+          <div style={{ color: 'red', padding: '10px', background: '#ffebee', borderRadius: '4px' }}>
+            <p><strong>回测计算发生严重错误:</strong></p>
+            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{result._error}</pre>
+          </div>
+        ) : (
+          <p style={{ color: 'var(--text-secondary)' }}>计算中或数据不足...</p>
+        )}
       </div>
     );
   }
@@ -40,11 +48,27 @@ export function BacktestPanel({
             <option value="dynamic">动态倍率</option>
             <option value="fixed">固定克数</option>
           </select>
-          <select value={returnMethod} onChange={e => setReturnMethod(e.target.value)} style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}>
-            <option value="xirr">XIRR</option>
-            <option value="simple">简单年化</option>
-          </select>
-          <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer', marginLeft: 'auto' }}>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginLeft: 'auto' }}>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '0.85rem' }}>
+              <input type="checkbox" checked={enableLadderOrders} onChange={e => setEnableLadderOrders(e.target.checked)} style={{ marginRight: '6px' }} />
+              启用多档阶梯挂单 (扩展)
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+              <span>挂单有效期:</span>
+              <input 
+                type="number" 
+                min="1" 
+                max="6" 
+                value={orderValidity} 
+                onChange={e => setOrderValidity(Math.max(1, Math.min(6, parseInt(e.target.value) || 6)))} 
+                className="input-field" 
+                style={{ width: '60px', padding: '2px 4px', fontSize: '0.85rem' }} 
+              />
+              <span>个交易日</span>
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer', marginLeft: '12px' }}>
             <input type="checkbox" checked={showTradePoints} onChange={e => setShowTradePoints(e.target.checked)} style={{ marginRight: '6px' }} />
             图表显示买卖点
           </label>
@@ -106,7 +130,12 @@ export function BacktestPanel({
           <div className="indicator-header">
             <div className="indicator-title">
               年化收益率
-              <Tooltip content="根据设置面板中的算法（XIRR 或 简单年化）计算得出" />
+              <Tooltip content={
+                <>
+                  <div style={{ marginBottom: '8px' }}><strong>简单年化</strong>: <br/>(总净利润 ÷ 最大资金占用) ÷ (回测天数 ÷ 365)。<br/>算法简单直接，适合衡量总投入的绝对回报速度。</div>
+                  <div><strong>XIRR</strong>: <br/>根据每笔买入和卖出的确切发生时间和金额，计算出的资金内部收益率。它更科学地反映了资金的时间价值和资金在真实交易过程中的周转效率。</div>
+                </>
+              } />
             </div>
           </div>
           {result.annualizedReturn === null ? (
@@ -114,9 +143,14 @@ export function BacktestPanel({
               计算失败
             </div>
           ) : (
-            <div className={`indicator-value highlight ${result.annualizedReturn >= 0 ? 'up' : 'down'}`}>
-              {(result.annualizedReturn * 100).toFixed(2)}%
-            </div>
+            <>
+              <div className={`indicator-value highlight ${result.annualizedReturn >= 0 ? 'up' : 'down'}`}>
+                {(result.annualizedReturn * 100).toFixed(2)}%
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                XIRR: {result.xirr === null || result.xirr === undefined || isNaN(result.xirr) ? '计算失败' : (result.xirr * 100).toFixed(2) + '%'}
+              </div>
+            </>
           )}
         </div>
 

@@ -220,7 +220,7 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
             position: 'absolute', 
             top: 0, 
             left: 'calc(100% + 12px)', 
-            width: '300px', 
+            width: '450px', 
             backgroundColor: 'var(--card-bg)', 
             border: '1px solid var(--accent-gold)', 
             borderRadius: '8px', 
@@ -242,6 +242,14 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
                 <li><code>macro_dxy_changePercent</code>: 美元指数涨跌幅</li>
                 <li><code>macro_tnx_changePercent</code>: 美债收益率涨跌幅</li>
               </ul>
+
+              <strong>【高级辅助函数】</strong>
+              <ul style={{ paddingLeft: '20px', marginBottom: '8px', marginTop: '4px' }}>
+                <li><code>cond(条件1, 结果1, 条件2, 结果2, ..., 默认结果)</code>: 类似 if-else 分支</li>
+                <li><code>match(变量, 值1, 结果1, 值2, 结果2, ..., 默认结果)</code>: 类似 switch 分支</li>
+                <li><code>singleOrder(价格, 倍率)</code>: 生成单笔挂单记录</li>
+                <li><code>gridOrders(基准价, 总倍率, 档位数, 跌幅比例)</code>: 快速生成网格挂单。例如 <code>gridOrders(550, 1.0, 3, 0.01)</code> 将生成 550, 544.5, 539.05 三档，总计 1.0 倍率的订单</li>
+              </ul>
               
               {type === 'buy' ? (
                 <>
@@ -250,10 +258,10 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
                     <li><code>wday</code>: 当前星期几 (1-7)</li>
                     <li><code>calendar_bestBuyDay</code>: 历史统计最佳买入日</li>
                   </ul>
-                  <strong>【必须计算赋值的变量】</strong>
+                  <strong>【需计算赋值的变量 (基础/高级二选一)】</strong>
                   <ul style={{ paddingLeft: '20px', marginBottom: '0', marginTop: '4px' }}>
-                    <li><code>targetPrice</code>: (必选) 目标挂单买入价格</li>
-                    <li><code>multiplier</code>: (可选) 买入数量倍率，默认 1.0</li>
+                    <li><strong>基础模式：</strong> 赋值 <code>targetPrice</code> (挂单价) 与 <code>multiplier</code> (倍率, 默认1)</li>
+                    <li><strong>高级模式 (阶梯挂单)：</strong> 赋值 <code>orders</code> 数组。可使用 <code>orders = gridOrders(...)</code> 生成</li>
                     <li><code>reason</code>: (可选) 决策说明，用 <code>concat()</code> 拼接</li>
                   </ul>
                 </>

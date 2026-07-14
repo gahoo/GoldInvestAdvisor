@@ -41,9 +41,9 @@ body {
 
 /* App Container */
 .app-container {
-  max-width: 1200px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 40px 20px;
+  padding: 24px 16px;
 }
 
 header {
@@ -262,7 +262,7 @@ h1 {
 .tooltip-icon:hover { color: var(--accent-gold); }
 .tooltip-popup {
   position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%) translateY(-8px);
-  width: 220px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px);
+  width: 300px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px);
   border: 1px solid rgba(0,0,0,0.1); padding: 12px; border-radius: 8px;
   box-shadow: var(--shadow-lg); font-size: 0.8rem; color: var(--text-primary);
   line-height: 1.5; z-index: 10; opacity: 0; visibility: hidden; transition: all 0.2s;

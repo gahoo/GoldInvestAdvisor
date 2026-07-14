@@ -56,6 +56,27 @@ export const BUILT_IN_BUY_STRATEGIES = {
       targetPrice = is_pressure ? currentPrice * (1 - (pressure * 0.005)) : currentPrice;
       reason = is_pressure ? concat("美债和美元产生 ", round(pressure, 2), "% 的联合共振压制，动态向下打折接针，加码 ", round(multiplier, 2), "x。") : (macro_valid ? "宏观因子未形成共振上行压制，维持现价 1.00x 正常定投。" : "加载宏观因子中，维持默认定投。");
     `
+  },
+  ladder_advanced: {
+    name: '动态多档阶梯 (原生)',
+    description: '逻辑：直接利用底层原生接口生成多档阶梯网格。结合乖离率(BIAS)和真实波动率(ATR)动态调节间距。\n算法：在上升趋势中(BIAS>0)缩小网格间距以确保部分成交；在下跌趋势中拉大网格以接更深的针。',
+    script: `
+      # 动态档位数与间距
+      is_down = bias < 0;
+      levels = is_down ? 4 : 3;
+      drop_pct = is_down ? 0.008 : 0.005;
+      
+      # 根据超买超卖调整总倍率
+      total_multi = max(0.5, min(3.0, 1.0 - (bias * 10)));
+      
+      # 起始首档防守价 (贴近现价或下移半个ATR)
+      start_price = currentPrice - (weeklyAtr * (is_down ? 0.5 : 0.2));
+      
+      # 显式生成底层多档订单结构
+      orders = gridOrders(start_price, total_multi, levels, drop_pct);
+      
+      reason = concat("根据 BIAS(", round(bias * 100, 2), "%) 判定分配为 ", levels, " 档挂单，层级间距 ", drop_pct * 100, "%，首档防守位 ", round(start_price, 2), "。");
+    `
   }
 };
 

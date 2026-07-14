@@ -37,7 +37,7 @@ export function MultiSelectDropdown({ label, options = [], selectedOptions = [],
         style={{ padding: '4px 8px', border: '1px solid var(--border-color)', borderRadius: '4px', backgroundColor: 'var(--card-bg)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-          {selectedOptions.length === 0 ? `未选择${label}` : `已选择 ${selectedOptions.length} 个${label}`}
+          {selectedOptions.length === 0 ? `未选择${label}` : `已选择 ${selectedOptions.length} 个`}
         </span>
         <span style={{ fontSize: '0.7rem', opacity: 0.6, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', marginLeft: '4px' }}>▼</span>
       </div>
