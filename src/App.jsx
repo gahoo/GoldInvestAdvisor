@@ -133,7 +133,7 @@ function App() {
     leaderboardCacheRef.current.clear();
     setStrategyLeaderboardData([]);
     setPinnedRowKeys([]);
-  }, [data]);
+  }, [data, backtestRange]);
 
   useEffect(() => {
     if (!data || data.length === 0) {
@@ -155,8 +155,19 @@ function App() {
     let sellIdx = 0;
     let cancelled = false;
 
-    const paramsSnapshot = { tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod };
+    const paramsSnapshot = { tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod, backtestRange };
     const paramsKeyStr = JSON.stringify(paramsSnapshot);
+
+    // 根据 backtestRange 截取时间窗口
+    let daysToKeep = data.length;
+    if (backtestRange === '1y') daysToKeep = 250;
+    else if (backtestRange === '3y') daysToKeep = 750;
+    else if (backtestRange === '5y') daysToKeep = 1250;
+    else if (backtestRange === '10y') daysToKeep = 2500;
+    else if (backtestRange === '20y') daysToKeep = 5000;
+    
+    const rangeData = data.slice(Math.max(0, data.length - daysToKeep));
+    const backtestData = rangeData.filter(d => d.isFinal);
 
     const computeChunk = () => {
       if (cancelled) return;
@@ -177,7 +188,7 @@ function App() {
         const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
 
         if (!leaderboardCacheRef.current.has(cacheKey)) {
-          const result = runBacktest(data, buyStrat, baseGrams, { 
+          const result = runBacktest(backtestData, buyStrat, baseGrams, { 
             buyMode, tradeFrequency, atrPeriod, 
             allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume, lotSize, enableLadderOrders, orderValidity
           });
@@ -219,7 +230,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [data, baseGrams, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, enableLadderOrders, orderValidity, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies]);
+  }, [data, baseGrams, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, enableLadderOrders, orderValidity, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies, backtestRange]);
 
   const togglePin = (key) => {
     setPinnedRowKeys(prev => {
@@ -239,6 +250,7 @@ function App() {
   }, [strategyLeaderboardData]);
 
   const lastFetchKey = useRef(null);
+  const macroCacheRef = useRef(null);
 
   useEffect(() => {
     // 根据资产类型推断 lotSize
@@ -300,13 +312,7 @@ function App() {
       setData(finalData);
 
       // --- NEW: 在后台静默拉取剩余的大型宏观数据 ---
-      addBgTask('macro-init', { name: '后台环境初始化', desc: '正在拉取 FRED/CFTC 宏观历史数据...', progress: null, done: false });
-      Promise.all([
-        dataManager.fetchData({ source: 'fred', symbol: 'M2SL', assetType: 'macro', range: 'max' }).catch(() => []),
-        dataManager.fetchData({ source: 'fred', symbol: 'DFII10', assetType: 'macro', range: 'max' }).catch(() => []),
-        dataManager.fetchData({ source: 'cftc', symbol: 'gold', assetType: 'macro', range: 'max' }).catch(() => []),
-        fetch('/api/options?symbol=GC=F').then(r => r.json()).catch(() => ({}))
-      ]).then(([m2Data, tipsData, cftcData, optionsData]) => {
+      const alignMacroData = (m2Data, tipsData, cftcData, optionsData) => {
           setMacroContext({
             gold: finalData,
             m2: m2Data,
@@ -315,7 +321,6 @@ function App() {
             options: optionsData
           });
 
-          // 启动异步分片宏观时间序列对齐任务 (消灭未来函数)
           if (m2Data && tipsData && cftcData) {
             let m2Idx = 0, tipsIdx = 0, cftcIdx = 0;
             let m2History = [], tipsHistory = [], cftcHistory = [];
@@ -340,13 +345,13 @@ function App() {
                     }
                 }
                 
-                addBgTask('macro-align', { name: '对齐宏观时间序列', desc: '正在将历史宏观数据回填至金价 K 线...', progress: (i / finalData.length) * 100, done: false });
+                addBgTask('macro-align', { name: '对齐宏观时间序列', desc: '正在将历史宏观数据回填至 K 线...', progress: (i / finalData.length) * 100, done: false });
                 
                 if (i < finalData.length) {
                     requestAnimationFrame(processChunk);
                 } else {
-                    addBgTask('macro-align', { name: '宏观序列对齐完成', desc: '历史回测引擎准备就绪 (已消除未来函数)', progress: 100, done: true });
-                    setData([...finalData]); // 重新触发重绘与指标计算，此时 finalData 里的 k 线已经携带真实历史宏观得分
+                    addBgTask('macro-align', { name: '宏观序列对齐完成', desc: '历史回测引擎准备就绪', progress: 100, done: true });
+                    setData([...finalData]); 
                     setTimeout(() => removeBgTask('macro-align'), 3000);
                 }
             };
@@ -356,9 +361,25 @@ function App() {
           } else {
             removeBgTask('macro-init');
           }
-      }).catch(err => {
-        console.error('后台加载宏观数据失败:', err);
-      });
+      };
+
+      if (macroCacheRef.current && macroCacheRef.current.m2 && macroCacheRef.current.m2.length > 0) {
+        alignMacroData(macroCacheRef.current.m2, macroCacheRef.current.tips, macroCacheRef.current.cftc, macroCacheRef.current.options);
+      } else {
+        addBgTask('macro-init', { name: '后台环境初始化', desc: '首次拉取 FRED/CFTC 宏观历史数据...', progress: null, done: false });
+        Promise.all([
+          dataManager.fetchData({ source: 'fred', symbol: 'M2SL', assetType: 'macro', range: 'max' }).catch(() => []),
+          dataManager.fetchData({ source: 'fred', symbol: 'DFII10', assetType: 'macro', range: 'max' }).catch(() => []),
+          dataManager.fetchData({ source: 'cftc', symbol: 'gold', assetType: 'macro', range: 'max' }).catch(() => []),
+          fetch('/api/options?symbol=GC=F').then(r => r.json()).catch(() => ({}))
+        ]).then(([m2Data, tipsData, cftcData, optionsData]) => {
+            macroCacheRef.current = { m2: m2Data, tips: tipsData, cftc: cftcData, options: optionsData };
+            alignMacroData(m2Data, tipsData, cftcData, optionsData);
+        }).catch(err => {
+          console.error('后台加载宏观数据失败:', err);
+          removeBgTask('macro-init');
+        });
+      }
     }).catch(err => {
       removeBgTask('core-fetch');
       setError(err.message);
