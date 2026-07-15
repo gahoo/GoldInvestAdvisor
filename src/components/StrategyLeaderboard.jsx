@@ -26,6 +26,14 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
     }
   };
 
+  const compareParams = (p1, p2) => {
+    if (!p1 || !p2) return true;
+    for (const key of Object.keys(p2)) {
+      if (p1[key] !== p2[key]) return false;
+    }
+    return true;
+  };
+
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
   };
@@ -327,7 +335,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
             {sortedData.map((row, idx) => {
               const isCurrent = currentStrategy === row.buyStrategy && 
                                 (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
-                                (!row.paramsSnapshot || !currentParams || JSON.stringify(row.paramsSnapshot) === JSON.stringify(currentParams));
+                                compareParams(row.paramsSnapshot, currentParams);
               return (
                 <div 
                   key={idx} 
@@ -505,7 +513,7 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
               {sortedData.map((row, idx) => {
                 const isCurrent = currentStrategy === row.buyStrategy && 
                                   (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
-                                  (!row.paramsSnapshot || !currentParams || JSON.stringify(row.paramsSnapshot) === JSON.stringify(currentParams));
+                                  compareParams(row.paramsSnapshot, currentParams);
                 
                 return (
                   <tr 

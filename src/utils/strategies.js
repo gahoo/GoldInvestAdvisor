@@ -4,13 +4,20 @@ import { BUILT_IN_BUY_STRATEGIES, BUILT_IN_SELL_STRATEGIES } from './builtin_for
 // -----------------------------------------------------------------------------
 // Pre-compilation steps for performance (100x speedup in loops)
 // -----------------------------------------------------------------------------
+export let customStrategiesCache = { buy: null, sell: null };
+
+export function setCustomStrategiesCache(buyStrats, sellStrats) {
+  customStrategiesCache.buy = buyStrats;
+  customStrategiesCache.sell = sellStrats;
+}
+
 export function compileBuyStrategy(strategy) {
   let script = '';
   if (BUILT_IN_BUY_STRATEGIES[strategy]) {
     script = BUILT_IN_BUY_STRATEGIES[strategy].script;
   } else if (strategy.startsWith('custom_buy_')) {
     try {
-      const customStrats = JSON.parse(localStorage.getItem('customBuyStrategies') || '[]');
+      const customStrats = customStrategiesCache.buy || (typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('customBuyStrategies') || '[]') : []);
       const custom = customStrats.find(s => s.id === strategy);
       if (custom) script = custom.script;
     } catch (e) {
@@ -35,7 +42,7 @@ export function compileSellStrategy(stratKey) {
     script = BUILT_IN_SELL_STRATEGIES[stratKey].script;
   } else if (stratKey.startsWith('custom_sell_')) {
     try {
-      const customStrats = JSON.parse(localStorage.getItem('customSellStrategies') || '[]');
+      const customStrats = customStrategiesCache.sell || (typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('customSellStrategies') || '[]') : []);
       const custom = customStrats.find(s => s.id === stratKey);
       if (custom) script = custom.script;
     } catch (e) {

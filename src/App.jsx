@@ -18,6 +18,7 @@ import { TopBar } from './components/DataManagement/TopBar';
 import { MacroProbabilityPanel } from './components/Strategy/MacroProbabilityPanel';
 import { MacroProbabilityModel } from './utils/strategy/MacroProbabilityModel';
 import BackgroundTaskToast from './components/BackgroundTaskToast';
+import { WorkerPool } from './workers/workerPool';
 
 function App() {
   const [currentSymbolConfig, setCurrentSymbolConfig] = useState({
@@ -150,87 +151,98 @@ function App() {
 
     setLeaderboardLoading(true);
     setLeaderboardProgress(0);
-
-    let buyIdx = 0;
-    let sellIdx = 0;
-    let cancelled = false;
-
-    const paramsSnapshot = { tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod, backtestRange };
-    const paramsKeyStr = JSON.stringify(paramsSnapshot);
-
-    // 根据 backtestRange 截取时间窗口
-    let daysToKeep = data.length;
-    if (backtestRange === '1y') daysToKeep = 250;
-    else if (backtestRange === '3y') daysToKeep = 750;
-    else if (backtestRange === '5y') daysToKeep = 1250;
-    else if (backtestRange === '10y') daysToKeep = 2500;
-    else if (backtestRange === '20y') daysToKeep = 5000;
     
-    const rangeData = data.slice(Math.max(0, data.length - daysToKeep));
-    const backtestData = rangeData.filter(d => d.isFinal);
+    let isCancelled = false;
+    let pool = null;
 
-    const computeChunk = () => {
-      if (cancelled) return;
+    const runWorkers = async () => {
+      const paramsSnapshot = { tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod, backtestRange, lotSize };
+      const paramsKeyStr = JSON.stringify(paramsSnapshot);
+
+      // 根据 backtestRange 截取时间窗口
+      let daysToKeep = data.length;
+      if (backtestRange === '1y') daysToKeep = 250;
+      else if (backtestRange === '3y') daysToKeep = 750;
+      else if (backtestRange === '5y') daysToKeep = 1250;
+      else if (backtestRange === '10y') daysToKeep = 2500;
+      else if (backtestRange === '20y') daysToKeep = 5000;
       
-      const chunkEndTime = performance.now() + 15; // 15ms per frame
-      while (performance.now() < chunkEndTime) {
-        if (buyIdx >= allBuyOptions.length) {
-          setStrategyLeaderboardData(Array.from(leaderboardCacheRef.current.values()));
-          setLeaderboardLoading(false);
-          setLeaderboardProgress(100);
-          return;
-        }
+      const rangeData = data.slice(Math.max(0, data.length - daysToKeep));
+      const backtestData = rangeData.filter(d => d.isFinal);
 
-        const buyStrat = allBuyOptions[buyIdx];
-        const sellStrats = sellCombinations[sellIdx];
-        const tempAllowSell = sellStrats.length > 0;
-        
-        const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
+      const tasksToRun = [];
+      const cachedResults = [];
+      let jobIdCounter = 0;
 
-        if (!leaderboardCacheRef.current.has(cacheKey)) {
-          const result = runBacktest(backtestData, buyStrat, baseGrams, { 
-            buyMode, tradeFrequency, atrPeriod, 
-            allowSell: tempAllowSell, sellFee, sellStrategies: sellStrats, minTradeVolume, lotSize, enableLadderOrders, orderValidity
-          });
-          
-          if (result && result.trades) {
-            leaderboardCacheRef.current.set(cacheKey, {
-              cacheKey,
-              buyStrategy: buyStrat,
-              sellStrategies: sellStrats,
-              buyName: buyStrat.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === buyStrat)?.name || buyStrat) : buyStrat,
-              sellNames: sellStrats.map(s => s.startsWith('custom_sell_') ? (customSellStrategies.find(c => c.id === s)?.name || s) : s),
-              paramsSnapshot,
-              ...result
-            });
+      allBuyOptions.forEach(buyStrat => {
+        sellCombinations.forEach(sellStrats => {
+          const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
+          if (leaderboardCacheRef.current.has(cacheKey)) {
+            cachedResults.push(leaderboardCacheRef.current.get(cacheKey));
+          } else {
+            tasksToRun.push({ jobId: jobIdCounter++, cacheKey, buyStrat, sellStrats });
           }
-        }
+        });
+      });
 
-        sellIdx++;
-        if (sellIdx >= sellCombinations.length) {
-          sellIdx = 0;
-          buyIdx++;
-        }
-      }
-      
-      const computed = buyIdx * sellCombinations.length + sellIdx;
-      setLeaderboardProgress(Math.floor((computed / totalCombinations) * 100));
-      
-      if (buyIdx < allBuyOptions.length) {
-        requestAnimationFrame(computeChunk);
-      } else {
-        setStrategyLeaderboardData(Array.from(leaderboardCacheRef.current.values()));
+      if (tasksToRun.length === 0) {
+        setStrategyLeaderboardData(cachedResults);
         setLeaderboardLoading(false);
         setLeaderboardProgress(100);
+        return;
       }
+
+      const workerUrl = new URL('./workers/backtest.worker.js', import.meta.url);
+      pool = new WorkerPool(workerUrl);
+
+      const initPayload = {
+        data: backtestData,
+        baseGrams,
+        params: { buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, lotSize, enableLadderOrders, orderValidity },
+        customBuyStrategies,
+        customSellStrategies
+      };
+
+      await pool.init(initPayload);
+      if (isCancelled) return;
+
+      const results = await pool.runTasks(tasksToRun, (completed) => {
+        if (!isCancelled) {
+          const totalProgress = Math.floor(((cachedResults.length + completed) / totalCombinations) * 100);
+          setLeaderboardProgress(totalProgress);
+        }
+      });
+
+      if (isCancelled) return;
+
+      results.forEach(({ buyStrat, sellStrats, result }) => {
+        const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
+        const item = {
+          cacheKey,
+          buyStrategy: buyStrat,
+          sellStrategies: sellStrats,
+          buyName: buyStrat.startsWith('custom_buy_') ? (customBuyStrategies.find(s => s.id === buyStrat)?.name || buyStrat) : buyStrat,
+          sellNames: sellStrats.map(s => s.startsWith('custom_sell_') ? (customSellStrategies.find(c => c.id === s)?.name || s) : s),
+          paramsSnapshot,
+          ...result
+        };
+        leaderboardCacheRef.current.set(cacheKey, item);
+        cachedResults.push(item);
+      });
+
+      setStrategyLeaderboardData([...cachedResults]);
+      setLeaderboardLoading(false);
+      setLeaderboardProgress(100);
+      if (pool) pool.terminate();
     };
 
-    requestAnimationFrame(computeChunk);
+    runWorkers();
 
     return () => {
-      cancelled = true;
+      isCancelled = true;
+      if (pool) pool.terminate();
     };
-  }, [data, baseGrams, buyMode, tradeFrequency, atrPeriod, sellFee, minTradeVolume, enableLadderOrders, orderValidity, leaderboardBuyFilter, leaderboardSellFilter, customBuyStrategies, customSellStrategies, backtestRange]);
+  }, [data, allBuyOptions, allSellOptions, tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod, backtestRange, lotSize, customBuyStrategies, customSellStrategies]);
 
   const togglePin = (key) => {
     setPinnedRowKeys(prev => {
@@ -1035,6 +1047,7 @@ function App() {
                 togglePin={togglePin}
                 currentStrategy={strategy}
                 currentSellStrategies={allowSell ? sellStrategies : []}
+                currentParams={{ tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod, backtestRange, lotSize }}
                 leaderboardBuyFilter={leaderboardBuyFilter}
                 setLeaderboardBuyFilter={setLeaderboardBuyFilter}
                 allBuyOptions={allBuyOptions}
