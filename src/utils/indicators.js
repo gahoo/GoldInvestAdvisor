@@ -317,6 +317,10 @@ export function calculateAllIndicators(data, options = {}) {
     fib,
     calendar,
     drawdown,
+    macro_prob3m: current.macro_prob3m,
+    macro_prob6m: current.macro_prob6m,
+    macro_m2_residual: current.macro_m2_residual,
+    macro_cftc_delta: current.macro_cftc_delta,
     chartData: data, // 移除数量限制，全量传递，由视图层进行动态裁剪
   };
 }

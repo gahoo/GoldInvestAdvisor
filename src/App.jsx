@@ -17,6 +17,7 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { TopBar } from './components/DataManagement/TopBar';
 import { MacroProbabilityPanel } from './components/Strategy/MacroProbabilityPanel';
 import { MacroProbabilityModel } from './utils/strategy/MacroProbabilityModel';
+import BackgroundTaskToast from './components/BackgroundTaskToast';
 
 function App() {
   const [currentSymbolConfig, setCurrentSymbolConfig] = useState({
@@ -26,6 +27,27 @@ function App() {
   const [indicators, setIndicators] = useState(null);
   const [macro, setMacro] = useState(null);
   const [macroContext, setMacroContext] = useState(null);
+  const [bgTasks, setBgTasks] = useState([]);
+  
+  const addBgTask = (id, data) => {
+    setBgTasks(prev => {
+      const idx = prev.findIndex(t => t.id === id);
+      if (idx >= 0) {
+        const newTasks = [...prev];
+        newTasks[idx] = { ...newTasks[idx], ...data };
+        return newTasks;
+      }
+      return [...prev, { id, ...data }];
+    });
+  };
+
+  const removeBgTask = (id) => {
+    setBgTasks(prev => prev.map(t => t.id === id ? { ...t, removing: true } : t));
+    setTimeout(() => {
+      setBgTasks(prev => prev.filter(t => t.id !== id));
+    }, 400);
+  };
+
   const [strategy, setStrategy] = useState('grid');
   const [baseGrams, setBaseGrams] = useState(1);
   const [atrPeriod, setAtrPeriod] = useState(14);
@@ -244,6 +266,8 @@ function App() {
     setIndicators(null);
     setError(null);
 
+    addBgTask('core-fetch', { name: '获取资产数据', desc: `正在连接 ${currentSymbolConfig.source} 获取历史 K 线...`, progress: null, done: false });
+
     Promise.all([
       dataManager.fetchData({ 
         source: currentSymbolConfig.source, 
@@ -253,15 +277,13 @@ function App() {
         adj: 'unadj',
         range: currentSymbolConfig.range || 'max'
       }),
-      fetchHistoricalMacroData('10y'),
-      dataManager.fetchData({ source: 'fred', symbol: 'M2SL', assetType: 'macro', range: 'max' }).catch(() => []),
-      dataManager.fetchData({ source: 'fred', symbol: 'DFII10', assetType: 'macro', range: 'max' }).catch(() => []),
-      dataManager.fetchData({ source: 'cftc', symbol: 'gold', assetType: 'macro', range: 'max' }).catch(() => []),
-      fetch('/api/options?symbol=GC=F').then(r => r.json()).catch(() => ({}))
-    ]).then(([goldData, macroHistoryResult, m2Data, tipsData, cftcData, optionsData]) => {
+      fetchHistoricalMacroData('10y')
+    ]).then(([goldData, macroHistoryResult]) => {
       if (goldData.length < 60) {
         throw new Error('历史数据不足 60 条，无法进行指标计算。');
       }
+      
+      removeBgTask('core-fetch');
       
       // 合并历史宏观数据到金价数据中，供宏观策略回测使用
       let finalData = goldData;
@@ -274,15 +296,71 @@ function App() {
         setCurrentSymbolConfig(prev => ({ ...prev, name: goldData.name }));
       }
 
+      // 先设置初始数据，让UI瞬间渲染（此时 macro_prob3m 等于空，自动 fallback）
       setData(finalData);
-      setMacroContext({
-        gold: finalData,
-        m2: m2Data,
-        realRate: tipsData,
-        cftc: cftcData,
-        options: optionsData
+
+      // --- NEW: 在后台静默拉取剩余的大型宏观数据 ---
+      addBgTask('macro-init', { name: '后台环境初始化', desc: '正在拉取 FRED/CFTC 宏观历史数据...', progress: null, done: false });
+      Promise.all([
+        dataManager.fetchData({ source: 'fred', symbol: 'M2SL', assetType: 'macro', range: 'max' }).catch(() => []),
+        dataManager.fetchData({ source: 'fred', symbol: 'DFII10', assetType: 'macro', range: 'max' }).catch(() => []),
+        dataManager.fetchData({ source: 'cftc', symbol: 'gold', assetType: 'macro', range: 'max' }).catch(() => []),
+        fetch('/api/options?symbol=GC=F').then(r => r.json()).catch(() => ({}))
+      ]).then(([m2Data, tipsData, cftcData, optionsData]) => {
+          setMacroContext({
+            gold: finalData,
+            m2: m2Data,
+            realRate: tipsData,
+            cftc: cftcData,
+            options: optionsData
+          });
+
+          // 启动异步分片宏观时间序列对齐任务 (消灭未来函数)
+          if (m2Data && tipsData && cftcData) {
+            let m2Idx = 0, tipsIdx = 0, cftcIdx = 0;
+            let m2History = [], tipsHistory = [], cftcHistory = [];
+            const chunkSize = 200;
+            let i = 0;
+
+            const processChunk = () => {
+                const end = Math.min(i + chunkSize, finalData.length);
+                for (; i < end; i++) {
+                    const day = finalData[i];
+                    while(m2Idx < m2Data.length && m2Data[m2Idx].date <= day.date) m2History.push(m2Data[m2Idx++]);
+                    while(tipsIdx < tipsData.length && tipsData[tipsIdx].date <= day.date) tipsHistory.push(tipsData[tipsIdx++]);
+                    while(cftcIdx < cftcData.length && cftcData[cftcIdx].date <= day.date) cftcHistory.push(cftcData[cftcIdx++]);
+                    
+                    const evalCtx = { gold: finalData.slice(0, i + 1), m2: m2History, realRate: tipsHistory, cftc: cftcHistory };
+                    const macroEval = MacroProbabilityModel.evaluate(evalCtx);
+                    if (macroEval.success) {
+                        day.macro_prob3m = parseFloat(macroEval.probability.prob3m);
+                        day.macro_prob6m = parseFloat(macroEval.probability.prob6m);
+                        day.macro_m2_residual = parseFloat(macroEval.factors.m2Residual);
+                        day.macro_cftc_delta = parseFloat(macroEval.factors.cftcDelta) || 0;
+                    }
+                }
+                
+                addBgTask('macro-align', { name: '对齐宏观时间序列', desc: '正在将历史宏观数据回填至金价 K 线...', progress: (i / finalData.length) * 100, done: false });
+                
+                if (i < finalData.length) {
+                    requestAnimationFrame(processChunk);
+                } else {
+                    addBgTask('macro-align', { name: '宏观序列对齐完成', desc: '历史回测引擎准备就绪 (已消除未来函数)', progress: 100, done: true });
+                    setData([...finalData]); // 重新触发重绘与指标计算，此时 finalData 里的 k 线已经携带真实历史宏观得分
+                    setTimeout(() => removeBgTask('macro-align'), 3000);
+                }
+            };
+            
+            removeBgTask('macro-init');
+            requestAnimationFrame(processChunk);
+          } else {
+            removeBgTask('macro-init');
+          }
+      }).catch(err => {
+        console.error('后台加载宏观数据失败:', err);
       });
     }).catch(err => {
+      removeBgTask('core-fetch');
       setError(err.message);
     });
 
@@ -297,21 +375,9 @@ function App() {
   useEffect(() => {
     if (data.length >= 60) {
       let baseIndicators = calculateAllIndicators(data, { atrPeriod });
-      
-      // Inject Macro Probability Features
-      if (macroContext) {
-        const macroEval = MacroProbabilityModel.evaluate(macroContext);
-        if (macroEval.success) {
-          baseIndicators.macro_prob3m = parseFloat(macroEval.probability.prob3m);
-          baseIndicators.macro_prob6m = parseFloat(macroEval.probability.prob6m);
-          baseIndicators.macro_m2_residual = parseFloat(macroEval.factors.m2Residual);
-          baseIndicators.macro_cftc_delta = parseFloat(macroEval.factors.cftcDelta) || 0;
-        }
-      }
-      
       setIndicators(baseIndicators);
     }
-  }, [data, atrPeriod, macroContext]);
+  }, [data, atrPeriod]);
 
   const isActive = (cardType) => {
     if (strategy.startsWith('custom_buy_')) {
@@ -382,8 +448,6 @@ function App() {
     );
   }
 
-  if (!indicators) return <div className="loading">数据加载中...</div>;
-
   return (
     <div className="app-container">
       <TopBar 
@@ -394,7 +458,16 @@ function App() {
         {...confirmDialog} 
         onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} 
       />
-      <div className="two-column-layout">
+      
+      {!indicators ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'var(--text-secondary)' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid var(--border-color)', borderTopColor: 'var(--accent-gold)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
+          <div>正在构建系统分析骨架...</div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      ) : (
+      <>
+        <div className="two-column-layout">
         {/* 左侧：策略选择与指标监控 */}
         <div className="left-panel">
           <div className="card">
@@ -969,6 +1042,9 @@ function App() {
           )}
         </div>
       )}
+      </>
+      )}
+      <BackgroundTaskToast tasks={bgTasks} />
     </div>
   );
 }
