@@ -1,11 +1,11 @@
 import { calculateAllIndicators } from './indicators';
-import { evaluateStrategy, evaluateSellStrategy } from './strategies';
+import { compileBuyStrategy, compileSellStrategy, evaluateCompiledBuy, evaluateCompiledSell } from './strategies';
 import { calculateXIRR, calculateSimpleAnnualized } from './math';
 
 /**
  * 运行回测。
  * @param {Array} data - 历史 K 线数据
- * @param {string} strategy - 策略类型
+ * @param {string} buyStrategy - 买入策略描述
  * @param {number} baseGrams - 基础定投克数
  * @param {Object} options
  * @param {string} options.returnMethod - 'xirr' | 'simple'
@@ -15,7 +15,7 @@ import { calculateXIRR, calculateSimpleAnnualized } from './math';
  * @param {string} options.orderValidity - 订单有效期（天数）
  * @returns {Object} 回测结果统计
  */
-export function runBacktest(data, strategy, baseGrams, options = {}) {
+export function runBacktest(data, buyStrategy, baseGrams, options = {}) {
   const {
     buyMode = 'dynamic',
     tradeFrequency = 'weekly',
@@ -53,6 +53,9 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
   let activeOrders = []; // 跨日持久化的有效挂单
   let previousWeekId = -1;
 
+  // 1. 预编译策略（将 mathjs 的字符串解析提到大循环之外）
+  const compiledBuyNode = compileBuyStrategy(buyStrategy);
+  const compiledSellNodes = sellStrategies.map(compileSellStrategy).filter(Boolean);
 
   // 从第60天开始，让 MA60 和 Fib 指标有足够的数据
   const startIndex = 60;
@@ -80,7 +83,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     // 1. 优先判定卖出 (如果开启)
     let hasSold = false;
     if (allowSell && totalGrams >= 0.01) {
-      const sellAdvice = evaluateSellStrategy(indicators, totalGrams, averageCost, sellStrategies);
+      const sellAdvice = evaluateCompiledSell(indicators, totalGrams, averageCost, compiledSellNodes);
       if (sellAdvice.shouldSell) {
         let sellGrams = totalGrams * sellAdvice.sellRatio;
         
@@ -140,8 +143,8 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
     if (tradeFrequency === 'monthly' && currentMonthId <= lastSignalMonth) canGenerateSignal = false;
 
     if (canGenerateSignal) {
-      const evaluation = evaluateStrategy(indicators, currentData.macro || null, strategy, baseGrams, currentData.wday, enableLadderOrders);
-      let newOrders = evaluation.orders || [];
+      const evaluation = evaluateCompiledBuy(indicators, currentData.macro || null, compiledBuyNode, baseGrams, currentData.wday, enableLadderOrders);
+      let newOrders = evaluation ? (evaluation.orders || []) : [];
       
       // Remove any 0 gram orders before doing anything else
       newOrders = newOrders.filter(o => o.grams > 0);
@@ -168,7 +171,7 @@ export function runBacktest(data, strategy, baseGrams, options = {}) {
       }
 
       if (newOrders.length > 0) {
-        activeOrders = newOrders.map(o => ({ ...o, reason: evaluation.reason, daysActive: 0 }));
+        activeOrders = newOrders.map(o => ({ ...o, reason: evaluation ? evaluation.reason : '', daysActive: 0 }));
         if (currentWeekId === lastSignalWeek) {
           currentWeekSignalCount += 1;
         } else {
