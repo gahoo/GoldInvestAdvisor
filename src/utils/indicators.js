@@ -218,6 +218,41 @@ export function calculateWeeklyDrawdown(data) {
 }
 
 /**
+ * 计算动量 (Momentum)
+ * 默认计算6个月 (约126个交易日) 的价格动量
+ */
+export function calculateMomentum(data, days = 126, key = 'close') {
+  if (!data || data.length <= days) return null;
+  const current = data[data.length - 1][key];
+  const past = data[data.length - 1 - days][key];
+  if (!past || past === 0) return null;
+  return (current - past) / past;
+}
+
+/**
+ * 计算同比增速 (Year-over-Year Growth)
+ * 默认计算过去1年 (约252个交易日) 的增速
+ */
+export function calculateYoY(data, days = 252, key = 'close') {
+  if (!data || data.length <= days) return null;
+  const current = data[data.length - 1][key];
+  const past = data[data.length - 1 - days][key];
+  if (!past || past === 0) return null;
+  return (current - past) / past;
+}
+
+/**
+ * 计算边际变化率 (Delta / Rate of Change)
+ * 例如用来观察实际利率近期的边际变化
+ */
+export function calculateDelta(data, days = 30, key = 'close') {
+  if (!data || data.length <= days) return 0;
+  const current = data[data.length - 1][key];
+  const past = data[data.length - 1 - days][key];
+  return current - past;
+}
+
+/**
  * 计算所有支持的指标
  */
 export function calculateAllIndicators(data, options = {}) {

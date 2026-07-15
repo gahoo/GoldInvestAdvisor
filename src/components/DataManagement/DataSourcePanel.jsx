@@ -120,13 +120,21 @@ export function DataSourcePanel({ onClose, onSelectSymbol, onRemoveRecent, onCle
           onChange={e => setNewSource(e.target.value)}
           style={{ padding: '8px', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
         >
-          <option value="yahoo">Yahoo Finance (股票/指数/外汇)</option>
+          <option value="yahoo">Yahoo Finance (股票/指数/外汇/原油)</option>
           <option value="fund">天天基金 (国内公募基金)</option>
           <option value="ccb">建行纸黄金</option>
+          <option value="fred">FRED API (宏观经济数据)</option>
+          <option value="cftc">CFTC COT (持仓报告)</option>
         </select>
         <input 
           type="text" 
-          placeholder={newSource === 'yahoo' ? "如 AAPL, 000001.SS, ^GSPC" : newSource === 'fund' ? "输入6位基金代码如 110011" : "如 gold"}
+          placeholder={
+            newSource === 'yahoo' ? "如 AAPL, GC=F, CL=F" : 
+            newSource === 'fund' ? "如 110011" : 
+            newSource === 'fred' ? "如 M2SL, DFII10" :
+            newSource === 'cftc' ? "如 gold" :
+            "输入代码"
+          }
           value={newSymbol}
           onChange={e => setNewSymbol(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleAddSymbol()}

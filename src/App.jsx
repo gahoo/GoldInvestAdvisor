@@ -15,6 +15,8 @@ import StrategyLeaderboard from './components/StrategyLeaderboard';
 import { StrategyEditor } from './components/StrategyEditor';
 import { ConfirmModal } from './components/ConfirmModal';
 import { TopBar } from './components/DataManagement/TopBar';
+import { MacroProbabilityPanel } from './components/Strategy/MacroProbabilityPanel';
+import { MacroProbabilityModel } from './utils/strategy/MacroProbabilityModel';
 
 function App() {
   const [currentSymbolConfig, setCurrentSymbolConfig] = useState({
@@ -23,6 +25,7 @@ function App() {
   const [data, setData] = useState([]);
   const [indicators, setIndicators] = useState(null);
   const [macro, setMacro] = useState(null);
+  const [macroContext, setMacroContext] = useState(null);
   const [strategy, setStrategy] = useState('grid');
   const [baseGrams, setBaseGrams] = useState(1);
   const [atrPeriod, setAtrPeriod] = useState(14);
@@ -250,8 +253,12 @@ function App() {
         adj: 'unadj',
         range: currentSymbolConfig.range || 'max'
       }),
-      fetchHistoricalMacroData('10y')
-    ]).then(([goldData, macroHistoryResult]) => {
+      fetchHistoricalMacroData('10y'),
+      dataManager.fetchData({ source: 'fred', symbol: 'M2SL', assetType: 'macro', range: 'max' }).catch(() => []),
+      dataManager.fetchData({ source: 'fred', symbol: 'DFII10', assetType: 'macro', range: 'max' }).catch(() => []),
+      dataManager.fetchData({ source: 'cftc', symbol: 'gold', assetType: 'macro', range: 'max' }).catch(() => []),
+      fetch('/api/options?symbol=GC=F').then(r => r.json()).catch(() => ({}))
+    ]).then(([goldData, macroHistoryResult, m2Data, tipsData, cftcData, optionsData]) => {
       if (goldData.length < 60) {
         throw new Error('历史数据不足 60 条，无法进行指标计算。');
       }
@@ -268,6 +275,13 @@ function App() {
       }
 
       setData(finalData);
+      setMacroContext({
+        gold: finalData,
+        m2: m2Data,
+        realRate: tipsData,
+        cftc: cftcData,
+        options: optionsData
+      });
     }).catch(err => {
       setError(err.message);
     });
@@ -282,9 +296,22 @@ function App() {
 
   useEffect(() => {
     if (data.length >= 60) {
-      setIndicators(calculateAllIndicators(data, { atrPeriod }));
+      let baseIndicators = calculateAllIndicators(data, { atrPeriod });
+      
+      // Inject Macro Probability Features
+      if (macroContext) {
+        const macroEval = MacroProbabilityModel.evaluate(macroContext);
+        if (macroEval.success) {
+          baseIndicators.macro_prob3m = parseFloat(macroEval.probability.prob3m);
+          baseIndicators.macro_prob6m = parseFloat(macroEval.probability.prob6m);
+          baseIndicators.macro_m2_residual = parseFloat(macroEval.factors.m2Residual);
+          baseIndicators.macro_cftc_delta = parseFloat(macroEval.factors.cftcDelta) || 0;
+        }
+      }
+      
+      setIndicators(baseIndicators);
     }
-  }, [data, atrPeriod]);
+  }, [data, atrPeriod, macroContext]);
 
   const isActive = (cardType) => {
     if (strategy.startsWith('custom_buy_')) {
@@ -570,6 +597,17 @@ function App() {
               实时指标
             </button>
             <button 
+              onClick={() => setActiveTab('macro')}
+              style={{ 
+                background: 'none', border: 'none', fontSize: '1rem', cursor: 'pointer', padding: '4px 8px',
+                color: activeTab === 'macro' ? 'var(--accent-gold)' : 'var(--text-secondary)',
+                fontWeight: activeTab === 'macro' ? '600' : '400',
+                borderBottom: activeTab === 'macro' ? '2px solid var(--accent-gold)' : 'none'
+              }}
+            >
+              宏观大势
+            </button>
+            <button 
               onClick={() => setActiveTab('backtest')}
               style={{ 
                 background: 'none', border: 'none', fontSize: '1rem', cursor: 'pointer', padding: '4px 8px',
@@ -582,9 +620,9 @@ function App() {
             </button>
           </div>
 
-          {activeTab === 'indicators' ? (
-            <div className="dashboard-grid">
-              <div className={`indicator-card ${isActive('price') ? 'active' : 'dimmed'}`}>
+          {activeTab === 'indicators' && (
+              <div className="dashboard-grid">
+                <div className={`indicator-card ${isActive('price') ? 'active' : 'dimmed'}`}>
               <div className="indicator-header">
                 <div className="indicator-title">
                   {currentSymbolConfig.assetType === 'fund' ? '最新净值' : '当前价格'}
@@ -681,8 +719,14 @@ function App() {
                 ) : '加载中...'}
               </div>
             </div>
-          </div>
-          ) : (
+            </div>
+          )}
+          
+          {activeTab === 'macro' && (
+            <MacroProbabilityPanel dataContext={macroContext} />
+          )}
+
+          {activeTab === 'backtest' && (
             <BacktestPanel 
               result={backtestResult} 
               buyMode={buyMode}

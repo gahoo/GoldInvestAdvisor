@@ -77,6 +77,45 @@ export const BUILT_IN_BUY_STRATEGIES = {
       
       reason = concat("根据 BIAS(", round(bias * 100, 2), "%) 判定分配为 ", levels, " 档挂单，层级间距 ", drop_pct * 100, "%，首档防守位 ", round(start_price, 2), "。");
     `
+  },
+  macro_ladder: {
+    name: '智能宏观网格',
+    description: '逻辑：结合3个月宏观看涨概率和技术面 ATR，动态生成非对称阶梯挂单。\n算法：胜率>75%时为强看涨，生成“头重脚轻”网格（贴近现价买入大仓位）；胜率<40%时为逆风局，生成“头轻脚重”网格（深水区防守接针）。未勾选“启用多档阶梯挂单”时，降级为单笔定投。',
+    script: `
+      # 根据宏观胜率判定大势
+      prob = macro_prob3m ? macro_prob3m : 50;
+      is_bull = prob > 75;
+      is_bear = prob < 40;
+      
+      # 根据超买超卖调整总倍率基础
+      base_multi = max(0.5, min(3.0, 1.0 - (bias * 10)));
+      
+      # 单笔购买降级逻辑
+      single_multi = base_multi * (is_bull ? 1.5 : (is_bear ? 0.5 : 1.0));
+      single_price = currentPrice - (weeklyAtr * (is_bull ? 0.1 : (is_bear ? 1.0 : 0.3)));
+      
+      # 动态加权阶梯逻辑
+      # 顺风局：跌幅浅，仓位重
+      drops_bull = [0.1 * (weeklyAtr/currentPrice), 0.3 * (weeklyAtr/currentPrice), 0.6 * (weeklyAtr/currentPrice)];
+      weights_bull = [0.5 * single_multi, 0.3 * single_multi, 0.2 * single_multi];
+      
+      # 逆风局：跌幅深，仓位重在底部
+      drops_bear = [0.5 * (weeklyAtr/currentPrice), 1.0 * (weeklyAtr/currentPrice), 2.0 * (weeklyAtr/currentPrice), 3.0 * (weeklyAtr/currentPrice)];
+      weights_bear = [0.1 * single_multi, 0.2 * single_multi, 0.3 * single_multi, 0.4 * single_multi];
+      
+      # 震荡局：均匀网格
+      drops_neutral = [0.3 * (weeklyAtr/currentPrice), 0.6 * (weeklyAtr/currentPrice), 1.0 * (weeklyAtr/currentPrice)];
+      weights_neutral = [0.33 * single_multi, 0.33 * single_multi, 0.34 * single_multi];
+      
+      drops = is_bull ? drops_bull : (is_bear ? drops_bear : drops_neutral);
+      weights = is_bull ? weights_bull : (is_bear ? weights_bear : weights_neutral);
+      
+      # 生成底层订单结构
+      orders = is_ladder_enabled ? weightedLadder(currentPrice, drops, weights) : singleOrder(single_price, single_multi);
+      
+      reason_ladder = is_bull ? "头重脚轻(浅水建仓)" : (is_bear ? "头轻脚重(深水接针)" : "中性均分");
+      reason = concat("宏观胜率 ", round(prob, 1), "%。执行", is_ladder_enabled ? concat("多档加权阶梯[", reason_ladder, "]") : "单笔定投", "，首档防守价 ", round(is_ladder_enabled ? currentPrice * (1 - drops[0]) : single_price, 2), "。");
+    `
   }
 };
 
@@ -106,6 +145,26 @@ export const BUILT_IN_SELL_STRATEGIES = {
       pnlRatio = averageCost > 0 ? (currentPrice - averageCost) / averageCost : 0;
       sellRatio = (ma60 > 0 and currentPrice < ma60 and pnlRatio > 0) ? 1.0 : 0;
       reason = sellRatio > 0 ? "跌破MA60中期趋势线且有浮盈，触发防守性清仓止盈" : "";
+    `
+  },
+  macro_scale_out: {
+    name: '智能宏观止盈',
+    description: '逻辑：结合宏观胜率动态调整止盈阈值。顺风局死拿利润，逆风局见好就收。\n算法：宏观胜率>75%时（极强牛市），只有极度超买(RSI>85)才卖出20%；宏观胜率<40%时（逆风局），微弱反弹(RSI>60)即卖出50%防守。',
+    script: `
+      prob = macro_prob3m ? macro_prob3m : 50;
+      is_bull = prob > 75;
+      is_bear = prob < 40;
+      
+      pnlRatio = averageCost > 0 ? (currentPrice - averageCost) / averageCost : 0;
+      
+      # 动态设定 RSI 卖出阈值与卖出比例
+      sell_rsi_threshold = is_bull ? 85 : (is_bear ? 60 : 75);
+      sell_ratio_amount = is_bull ? 0.2 : (is_bear ? 0.5 : 0.3);
+      
+      trigger = rsi > sell_rsi_threshold and pnlRatio > 0;
+      sellRatio = trigger ? sell_ratio_amount : 0;
+      
+      reason = sellRatio > 0 ? concat("宏观胜率", round(prob, 1), "%。RSI达到", round(rsi, 1), "触发动态止盈阈值(", sell_rsi_threshold, ")，卖出", sell_ratio_amount * 100, "%持仓。") : "";
     `
   }
 };

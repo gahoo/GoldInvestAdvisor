@@ -2,12 +2,16 @@ import { dbStore } from '../storage/IndexedDBStore.js';
 import { CCBGoldSource } from './CCBGoldSource.js';
 import { YahooFinanceSource } from './YahooFinanceSource.js';
 import { EastMoneyFundSource } from './EastMoneyFundSource.js';
+import FREDSource from './FREDSource.js';
+import CFTCSource from './CFTCSource.js';
 
 // 简单的数据源注册表
 const registry = {
   'ccb': new CCBGoldSource(),
   'yahoo': new YahooFinanceSource(),
-  'fund': new EastMoneyFundSource()
+  'fund': new EastMoneyFundSource(),
+  'fred': FREDSource,
+  'cftc': CFTCSource
 };
 
 /**
@@ -66,8 +70,8 @@ class DataManager {
     
     let finalName = symbol;
 
-    if (!cachedRecord) {
-      // 1. 无缓存，进行全量获取
+    if (!cachedRecord || !cachedRecord.data || cachedRecord.data.length === 0) {
+      // 1. 无缓存或缓存为空，进行全量获取
       console.log(`[DataManager] 无 ${cacheKey} 缓存，执行全量拉取...`);
       const apiData = await dataSource.fetchHistorical(symbol, range);
       if (apiData.name) finalName = apiData.name;

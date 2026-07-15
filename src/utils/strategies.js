@@ -15,6 +15,7 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams, wday, e
     macro_valid: !!(macro && macro.dxy?.changePercent !== undefined && macro.tnx?.changePercent !== undefined),
     macro_dxy_changePercent: macro?.dxy?.changePercent || 0,
     macro_tnx_changePercent: macro?.tnx?.changePercent || 0,
+    is_ladder_enabled: enableLadderOrders,
     // Provide custom functions for mathjs
     concat: (...args) => args.join(''),
     cond: (...args) => {
@@ -44,6 +45,20 @@ export function evaluateStrategy(indicators, macro, strategy, baseGrams, wday, e
         });
       }
       return orders;
+    },
+    weightedLadder: (basePrice, dropsRaw, weightsRaw) => {
+      const drops = dropsRaw?.toArray ? dropsRaw.toArray() : (dropsRaw?.valueOf ? dropsRaw.valueOf() : dropsRaw);
+      const weights = weightsRaw?.toArray ? weightsRaw.toArray() : (weightsRaw?.valueOf ? weightsRaw.valueOf() : weightsRaw);
+      
+      if (!Array.isArray(drops) || !Array.isArray(weights) || drops.length === 0) {
+        return [{ price: basePrice, multiplier: 1.0, label: '单笔' }];
+      }
+      
+      return drops.map((drop, i) => ({
+        price: basePrice * (1 - drop),
+        multiplier: weights[i] !== undefined ? weights[i] : 0,
+        label: `加权阶梯${i + 1}`
+      }));
     }
   };
 

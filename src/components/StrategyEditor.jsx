@@ -241,6 +241,10 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
                 <li><code>fib_level382</code> / <code>fib_level618</code>: 斐波那契支撑位</li>
                 <li><code>macro_dxy_changePercent</code>: 美元指数涨跌幅</li>
                 <li><code>macro_tnx_changePercent</code>: 美债收益率涨跌幅</li>
+                <li><code>macro_prob3m</code> / <code>macro_prob6m</code>: 3/6个月宏观看涨概率 (0-100)</li>
+                <li><code>macro_m2_residual</code>: 央行购金溢价残差 (中美M2差值)</li>
+                <li><code>macro_cftc_delta</code>: CFTC管理资金净多头变化</li>
+                <li><code>is_ladder_enabled</code>: 界面是否勾选了"启用多档阶梯挂单"</li>
               </ul>
 
               <strong>【高级辅助函数】</strong>
@@ -248,7 +252,8 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
                 <li><code>cond(条件1, 结果1, 条件2, 结果2, ..., 默认结果)</code>: 类似 if-else 分支</li>
                 <li><code>match(变量, 值1, 结果1, 值2, 结果2, ..., 默认结果)</code>: 类似 switch 分支</li>
                 <li><code>singleOrder(价格, 倍率)</code>: 生成单笔挂单记录</li>
-                <li><code>gridOrders(基准价, 总倍率, 档位数, 跌幅比例)</code>: 快速生成网格挂单。例如 <code>gridOrders(550, 1.0, 3, 0.01)</code> 将生成 550, 544.5, 539.05 三档，总计 1.0 倍率的订单</li>
+                <li><code>gridOrders(基准价, 总倍率, 档位数, 跌幅比例)</code>: 快速生成均分网格挂单</li>
+                <li><code>weightedLadder(基准价, 跌幅数组, 倍率数组)</code>: 快速生成非对称加权阶梯。例如 <code>weightedLadder(550, [0.01, 0.05], [0.3, 0.7])</code> 将在跌1%处买0.3倍，跌5%处买0.7倍</li>
               </ul>
               
               {type === 'buy' ? (
