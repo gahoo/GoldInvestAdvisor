@@ -17,18 +17,27 @@ export class WorkerPool {
 
   async init(initPayload) {
     for (let i = 0; i < this.poolSize; i++) {
-      const worker = new Worker(this.workerUrl, { type: 'module' });
-      const initPromise = new Promise((resolve) => {
-        // Temporary handler for initialization
-        worker.onmessage = (e) => {
-          if (e.data.type === 'init_done') {
-            this.idleWorkers.push(worker);
-            resolve();
-          }
-        };
+      const initPromise = new Promise((resolve, reject) => {
+        try {
+          const worker = new Worker(this.workerUrl, { type: 'module' });
+
+          worker.onerror = (err) => {
+            worker.terminate();
+            reject(new Error(`Worker ${i} initialization error: ${err.message}`));
+          };
+
+          worker.onmessage = (e) => {
+            if (e.data.type === 'init_done') {
+              this.idleWorkers.push(worker);
+              this.workers.push(worker);
+              resolve();
+            }
+          };
+          worker.postMessage({ type: 'init', payload: initPayload });
+        } catch (err) {
+          reject(new Error(`Failed to create worker: ${err.message}`));
+        }
       });
-      worker.postMessage({ type: 'init', payload: initPayload });
-      this.workers.push(worker);
       this.initPromises.push(initPromise);
     }
     await Promise.all(this.initPromises);
@@ -55,6 +64,14 @@ export class WorkerPool {
 
       // Assign actual task handlers
       this.workers.forEach(worker => {
+        worker.onerror = (err) => {
+          console.error('Worker global error:', err);
+          // Recover by tracking failure but not crashing the whole pool
+          this.completedTasks++;
+          if (this.onProgress) this.onProgress(this.completedTasks, this.totalTasks);
+          this._assignTask();
+        };
+
         worker.onmessage = (e) => {
           const { type, jobId, result, error, buyStrat, sellStrats } = e.data;
           
@@ -63,7 +80,9 @@ export class WorkerPool {
               this.results.push({ buyStrat, sellStrats, result });
             }
           } else if (type === 'error') {
-            console.error(`Worker error on job ${jobId}:`, error);
+            console.error(`Worker error on job ${jobId} (${buyStrat} + ${sellStrats.join(',')}):`, error);
+            // Optionally, we could push an error object to results so UI can display it
+            this.results.push({ buyStrat, sellStrats, result: null, error });
           }
           
           this.completedTasks++;

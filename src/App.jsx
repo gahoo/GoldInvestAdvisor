@@ -176,7 +176,7 @@ function App() {
 
       allBuyOptions.forEach(buyStrat => {
         sellCombinations.forEach(sellStrats => {
-          const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
+          const cacheKey = `${buyStrat}_${[...sellStrats].sort().join(',')}_${paramsKeyStr}`;
           if (leaderboardCacheRef.current.has(cacheKey)) {
             cachedResults.push(leaderboardCacheRef.current.get(cacheKey));
           } else {
@@ -186,7 +186,7 @@ function App() {
       });
 
       if (tasksToRun.length === 0) {
-        setStrategyLeaderboardData(cachedResults);
+        setStrategyLeaderboardData(Array.from(leaderboardCacheRef.current.values()));
         setLeaderboardLoading(false);
         setLeaderboardProgress(100);
         return;
@@ -203,7 +203,14 @@ function App() {
         customSellStrategies
       };
 
-      await pool.init(initPayload);
+      try {
+        await pool.init(initPayload);
+      } catch (err) {
+        console.error("Worker pool init failed:", err);
+        setLeaderboardLoading(false);
+        alert(`计算核心初始化失败: ${err.message}。这可能是浏览器隐私模式或资源限制导致的。`);
+        return;
+      }
       if (isCancelled) return;
 
       const results = await pool.runTasks(tasksToRun, (completed) => {
@@ -216,7 +223,7 @@ function App() {
       if (isCancelled) return;
 
       results.forEach(({ buyStrat, sellStrats, result }) => {
-        const cacheKey = `${buyStrat}_${sellStrats.join(',')}_${paramsKeyStr}`;
+        const cacheKey = `${buyStrat}_${[...sellStrats].sort().join(',')}_${paramsKeyStr}`;
         const item = {
           cacheKey,
           buyStrategy: buyStrat,
@@ -230,7 +237,7 @@ function App() {
         cachedResults.push(item);
       });
 
-      setStrategyLeaderboardData([...cachedResults]);
+      setStrategyLeaderboardData(Array.from(leaderboardCacheRef.current.values()));
       setLeaderboardLoading(false);
       setLeaderboardProgress(100);
       if (pool) pool.terminate();
@@ -449,6 +456,16 @@ function App() {
 
   const backtestResult = useMemo(() => {
     if (!data || data.length === 0 || !indicators) return null;
+
+    // 优先尝试从多线程计算池的缓存中直接获取结果（避免主线程卡顿）
+    const paramsSnapshot = { tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod, backtestRange, lotSize };
+    const paramsKeyStr = JSON.stringify(paramsSnapshot);
+    const cacheKey = `${strategy}_${[...sellStrategies].sort().join(',')}_${paramsKeyStr}`;
+    
+    if (leaderboardCacheRef.current.has(cacheKey)) {
+      return leaderboardCacheRef.current.get(cacheKey);
+    }
+
     const allowSell = sellStrategies.length > 0;
     try {
       // 根据 backtestRange 截取时间窗口
@@ -1068,9 +1085,10 @@ function App() {
                     if (paramsSnapshot.sellFee !== undefined) setSellFee(paramsSnapshot.sellFee);
                     if (paramsSnapshot.minTradeVolume !== undefined) setMinTradeVolume(paramsSnapshot.minTradeVolume);
                     if (paramsSnapshot.atrPeriod !== undefined) setAtrPeriod(paramsSnapshot.atrPeriod);
+                    if (paramsSnapshot.lotSize !== undefined) setLotSize(paramsSnapshot.lotSize);
+                    if (paramsSnapshot.backtestRange !== undefined) setBacktestRange(paramsSnapshot.backtestRange);
                   }
                 }}
-                currentParams={{ tradeFrequency, buyMode, enableLadderOrders, orderValidity, baseGrams, sellFee, minTradeVolume, atrPeriod }}
               />
             )
           )}

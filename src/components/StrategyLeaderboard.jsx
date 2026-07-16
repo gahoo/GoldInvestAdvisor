@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 
 const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrategies, currentParams, leaderboardBuyFilter, setLeaderboardBuyFilter, allBuyOptions, allSellOptions, leaderboardSellFilter, setLeaderboardSellFilter, getOptionLabelBuy, getOptionLabelSell, pinnedRowKeys = [], togglePin }) => {
@@ -127,6 +128,25 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
     } else {
       return valA < valB ? 1 : valA > valB ? -1 : 0;
     }
+  });
+
+  // Remove hardcoded DISPLAY_LIMIT, use all sortedData for virtualization
+  const displayData = sortedData;
+
+  const parentRefMobile = useRef();
+  const rowVirtualizerMobile = useVirtualizer({
+    count: displayData.length,
+    getScrollElement: () => parentRefMobile.current,
+    estimateSize: () => 180, // estimated card height
+    overscan: 5,
+  });
+
+  const parentRefTable = useRef();
+  const rowVirtualizerTable = useVirtualizer({
+    count: displayData.length,
+    getScrollElement: () => parentRefTable.current,
+    estimateSize: () => 60, // estimated row height
+    overscan: 10,
   });
 
   const renderSortArrow = (field) => {
@@ -328,22 +348,26 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
           </details>
 
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '8px', textAlign: 'center' }}>
-            共筛选出 {sortedData.length} 套策略，点击卡片即刻应用
+            共筛选出 {displayData.length} 套策略。点击卡片即刻应用。
           </div>
 
-          <div className="mobile-card-list">
-            {sortedData.map((row, idx) => {
-              const isCurrent = currentStrategy === row.buyStrategy && 
-                                (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
-                                compareParams(row.paramsSnapshot, currentParams);
-              return (
-                <div 
-                  key={idx} 
-                  className={`leaderboard-card ${isCurrent ? 'current-card' : ''}`}
-                  onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies, row.paramsSnapshot); }}
-                  style={{ position: 'relative' }}
-                >
-                  <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+          <div ref={parentRefMobile} style={{ height: '70vh', overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', backgroundColor: 'var(--bg-color)' }}>
+            <div style={{ height: `${rowVirtualizerMobile.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+              {rowVirtualizerMobile.getVirtualItems().map((virtualRow) => {
+                const row = displayData[virtualRow.index];
+                const isCurrent = currentStrategy === row.buyStrategy && 
+                                  (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
+                                  compareParams(row.paramsSnapshot, currentParams);
+                return (
+                  <div 
+                    key={virtualRow.index}
+                    ref={rowVirtualizerMobile.measureElement}
+                    data-index={virtualRow.index}
+                    className={`leaderboard-card ${isCurrent ? 'current-card' : ''}`}
+                    onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies, row.paramsSnapshot); }}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
                     <span 
                       onClick={(e) => { e.stopPropagation(); togglePin(row.cacheKey); }} 
                       style={{ cursor: 'pointer', fontSize: '1.4rem', color: pinnedRowKeys.includes(row.cacheKey) ? 'var(--accent-gold)' : 'var(--text-secondary)' }}
@@ -411,14 +435,15 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       ) : (
         // === DESKTOP TABLE VIEW ===
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left', backgroundColor: 'var(--bg-color)' }}>
+        <div ref={parentRefTable} style={{ overflow: 'auto', height: '70vh', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', position: 'relative' }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2, backgroundColor: 'var(--bg-color)', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+              <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}>
                 <th 
                   style={{ padding: '12px 4px', width: '50px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
                   onClick={() => setShowOnlyPinned(!showOnlyPinned)}
@@ -510,104 +535,120 @@ const StrategyLeaderboard = ({ data, onApply, currentStrategy, currentSellStrate
               </tr>
             </thead>
             <tbody>
-              {sortedData.map((row, idx) => {
-                const isCurrent = currentStrategy === row.buyStrategy && 
-                                  (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
-                                  compareParams(row.paramsSnapshot, currentParams);
+              {(() => {
+                const virtualItems = rowVirtualizerTable.getVirtualItems();
+                if (virtualItems.length === 0) return null;
+                const paddingTop = virtualItems[0].start;
+                const paddingBottom = rowVirtualizerTable.getTotalSize() - virtualItems[virtualItems.length - 1].end;
                 
                 return (
-                  <tr 
-                    key={idx} 
-                    className={`leaderboard-row ${isCurrent ? 'current-row' : ''}`}
-                    onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies, row.paramsSnapshot); }}
-                    style={{ 
-                      borderBottom: '1px solid var(--border-color)',
-                      backgroundColor: isCurrent ? 'rgba(212, 175, 55, 0.15)' : 'transparent',
-                      transition: 'background-color 0.2s',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <td style={{ padding: '12px 4px', textAlign: 'center' }}>
-                      <span 
-                        onClick={(e) => { e.stopPropagation(); togglePin(row.cacheKey); }} 
-                        style={{ cursor: 'pointer', fontSize: '1.2rem', color: pinnedRowKeys.includes(row.cacheKey) ? 'var(--accent-gold)' : 'var(--text-secondary)' }}
-                      >
-                        {pinnedRowKeys.includes(row.cacheKey) ? '⭐' : '☆'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 8px', fontWeight: '500', whiteSpace: 'nowrap' }}>
-                      <span style={{ whiteSpace: 'nowrap' }}>
-                        {getBuyStrategyName(row.buyStrategy, row)}
-                        {isCurrent && <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: 'var(--accent-gold)' }}>(当前)</span>}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 8px' }}>
-                      {row.sellStrategies.length === 0 ? (
-                        <span style={{ color: 'var(--text-secondary)' }}>无 (仅买入)</span>
-                      ) : (
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {row.sellStrategies.map(s => (
-                            <span key={s} style={{ 
-                              fontSize: '0.75rem', 
-                              padding: '2px 6px', 
-                              backgroundColor: 'var(--border-color)', 
-                              borderRadius: '4px',
-                              whiteSpace: 'nowrap'
-                            }}>
-                              {getSellStrategyName(s, row)}
+                  <>
+                    {paddingTop > 0 && <tr><td style={{ height: `${paddingTop}px` }} colSpan="15" /></tr>}
+                    {virtualItems.map((virtualRow) => {
+                      const row = displayData[virtualRow.index];
+                      const isCurrent = currentStrategy === row.buyStrategy && 
+                                        (currentSellStrategies ? JSON.stringify([...currentSellStrategies].sort()) : '[]') === JSON.stringify([...row.sellStrategies].sort()) &&
+                                        compareParams(row.paramsSnapshot, currentParams);
+                      
+                      return (
+                        <tr 
+                          key={virtualRow.index}
+                          ref={rowVirtualizerTable.measureElement}
+                          data-index={virtualRow.index}
+                          className={`leaderboard-row ${isCurrent ? 'current-row' : ''}`}
+                          onClick={() => { if (!isCurrent) onApply(row.buyStrategy, row.sellStrategies, row.paramsSnapshot); }}
+                          style={{ 
+                            borderBottom: '1px solid var(--border-color)',
+                            backgroundColor: isCurrent ? 'rgba(212, 175, 55, 0.15)' : 'transparent',
+                            transition: 'background-color 0.2s',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <td style={{ padding: '12px 4px', textAlign: 'center' }}>
+                            <span 
+                              onClick={(e) => { e.stopPropagation(); togglePin(row.cacheKey); }} 
+                              style={{ cursor: 'pointer', fontSize: '1.2rem', color: pinnedRowKeys.includes(row.cacheKey) ? 'var(--accent-gold)' : 'var(--text-secondary)' }}
+                            >
+                              {pinnedRowKeys.includes(row.cacheKey) ? '⭐' : '☆'}
                             </span>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 8px' }}>
-                      {row.paramsSnapshot && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '180px' }}>
-                          <span className="micro-tag">频:{row.paramsSnapshot.tradeFrequency === 'daily' ? '每日' : row.paramsSnapshot.tradeFrequency === 'weekly' ? '每周' : row.paramsSnapshot.tradeFrequency === 'twice_weekly' ? '周二/四' : row.paramsSnapshot.tradeFrequency === 'biweekly' ? '双周' : '每月'}</span>
-                          <span className="micro-tag">模:{row.paramsSnapshot.buyMode === 'dynamic' ? '动态倍率' : '固定克数'}</span>
-                          {row.paramsSnapshot.enableLadderOrders && <span className="micro-tag">阶梯:开</span>}
-                          <span className="micro-tag">期:{row.paramsSnapshot.orderValidity}天</span>
-                          <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}</span>
-                          {row.paramsSnapshot.sellFee !== undefined && <span className="micro-tag">费:{row.paramsSnapshot.sellFee * 100}%</span>}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.annualizedReturn === null ? 'var(--text-secondary)' : (row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
-                      {formatDisplayValue('annualizedReturn', row.annualizedReturn)}
-                    </td>
-                    <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.xirr === null || isNaN(row.xirr) ? 'var(--text-secondary)' : (row.xirr >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
-                      {row.xirr === null || isNaN(row.xirr) ? '-' : (row.xirr * 100).toFixed(2) + '%'}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', color: row.absoluteReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                      {formatDisplayValue('absoluteReturn', row.absoluteReturn)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {formatDisplayValue('netProfit', row.netProfit)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {formatDisplayValue('realizedProfit', row.realizedProfit)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {formatDisplayValue('finalValue', row.finalValue)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', color: row.maxDrawdown > 0 ? 'var(--color-down)' : 'inherit' }}>
-                      {formatDisplayValue('maxDrawdown', row.maxDrawdown)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {formatDisplayValue('calmarRatio', row.calmarRatio)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {formatDisplayValue('maxCapitalDeployed', row.maxCapitalDeployed)}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {row.tradeCount}
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      {row.sellStrategies.length > 0 ? formatDisplayValue('winRate', row.winRate) : '-'}
-                    </td>
-                  </tr>
+                          </td>
+                          <td style={{ padding: '12px 8px', fontWeight: '500', whiteSpace: 'nowrap' }}>
+                            <span style={{ whiteSpace: 'nowrap' }}>
+                              {getBuyStrategyName(row.buyStrategy, row)}
+                              {isCurrent && <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: 'var(--accent-gold)' }}>(当前)</span>}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 8px' }}>
+                            {row.sellStrategies.length === 0 ? (
+                              <span style={{ color: 'var(--text-secondary)' }}>无 (仅买入)</span>
+                            ) : (
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                {row.sellStrategies.map(s => (
+                                  <span key={s} style={{ 
+                                    fontSize: '0.75rem', 
+                                    padding: '2px 6px', 
+                                    backgroundColor: 'var(--border-color)', 
+                                    borderRadius: '4px',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {getSellStrategyName(s, row)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 8px' }}>
+                            {row.paramsSnapshot && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '180px' }}>
+                                <span className="micro-tag">频:{row.paramsSnapshot.tradeFrequency === 'daily' ? '每日' : row.paramsSnapshot.tradeFrequency === 'weekly' ? '每周' : row.paramsSnapshot.tradeFrequency === 'twice_weekly' ? '周二/四' : row.paramsSnapshot.tradeFrequency === 'biweekly' ? '双周' : '每月'}</span>
+                                <span className="micro-tag">模:{row.paramsSnapshot.buyMode === 'dynamic' ? '动态倍率' : '固定克数'}</span>
+                                {row.paramsSnapshot.enableLadderOrders && <span className="micro-tag">阶梯:开</span>}
+                                <span className="micro-tag">期:{row.paramsSnapshot.orderValidity}天</span>
+                                <span className="micro-tag">基:{row.paramsSnapshot.baseGrams}</span>
+                                {row.paramsSnapshot.sellFee !== undefined && <span className="micro-tag">费:{row.paramsSnapshot.sellFee * 100}%</span>}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.annualizedReturn === null ? 'var(--text-secondary)' : (row.annualizedReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
+                            {formatDisplayValue('annualizedReturn', row.annualizedReturn)}
+                          </td>
+                          <td style={{ padding: '12px 8px', fontWeight: 'bold', color: row.xirr === null || isNaN(row.xirr) ? 'var(--text-secondary)' : (row.xirr >= 0 ? 'var(--color-up)' : 'var(--color-down)'), textAlign: 'right' }}>
+                            {row.xirr === null || isNaN(row.xirr) ? '-' : (row.xirr * 100).toFixed(2) + '%'}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right', color: row.absoluteReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                            {formatDisplayValue('absoluteReturn', row.absoluteReturn)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {formatDisplayValue('netProfit', row.netProfit)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {formatDisplayValue('realizedProfit', row.realizedProfit)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {formatDisplayValue('finalValue', row.finalValue)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right', color: row.maxDrawdown > 0 ? 'var(--color-down)' : 'inherit' }}>
+                            {formatDisplayValue('maxDrawdown', row.maxDrawdown)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {formatDisplayValue('calmarRatio', row.calmarRatio)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {formatDisplayValue('maxCapitalDeployed', row.maxCapitalDeployed)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {row.tradeCount}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                            {row.sellStrategies.length > 0 ? formatDisplayValue('winRate', row.winRate) : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {paddingBottom > 0 && <tr><td style={{ height: `${paddingBottom}px` }} colSpan="15" /></tr>}
+                  </>
                 );
-              })}
+              })()}
             </tbody>
           </table>
         </div>
