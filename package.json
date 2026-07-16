@@ -12,11 +12,11 @@
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.6",
     "idb": "^8.0.3",
+    "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.22.0",
     "mathjs": "^15.2.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "recharts": "^3.9.1"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
