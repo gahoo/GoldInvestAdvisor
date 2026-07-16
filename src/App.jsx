@@ -19,6 +19,17 @@ import { MacroProbabilityPanel } from './components/Strategy/MacroProbabilityPan
 import { MacroProbabilityModel } from './utils/strategy/MacroProbabilityModel';
 import BackgroundTaskToast from './components/BackgroundTaskToast';
 import { WorkerPool } from './workers/workerPool';
+const MACRO_LAG_CONFIG = {
+  m2: 45,    // 极度保守：推迟45个自然日，确保覆盖月末发布 (M2SL发布通常滞后一个月以上)
+  cftc: 3,   // 周二的持仓报告在周五发布，滞后3天
+  tips: 1    // 每日收盘后生效，滞后1个交易日，确保次日才能使用
+};
+
+const addDaysToDateStr = (dateStr, days) => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+};
 
 function App() {
   const [currentSymbolConfig, setCurrentSymbolConfig] = useState({
@@ -341,6 +352,11 @@ function App() {
           });
 
           if (m2Data && tipsData && cftcData) {
+            // Apply Lag Window Transformation (Eliminate Lookahead Bias)
+            const safeM2 = m2Data.map(d => ({ ...d, date: addDaysToDateStr(d.date, MACRO_LAG_CONFIG.m2) }));
+            const safeTips = tipsData.map(d => ({ ...d, date: addDaysToDateStr(d.date, MACRO_LAG_CONFIG.tips) }));
+            const safeCftc = cftcData.map(d => ({ ...d, date: addDaysToDateStr(d.date, MACRO_LAG_CONFIG.cftc) }));
+
             let m2Idx = 0, tipsIdx = 0, cftcIdx = 0;
             let m2History = [], tipsHistory = [], cftcHistory = [];
             const chunkSize = 200;
@@ -350,9 +366,9 @@ function App() {
                 const end = Math.min(i + chunkSize, finalData.length);
                 for (; i < end; i++) {
                     const day = finalData[i];
-                    while(m2Idx < m2Data.length && m2Data[m2Idx].date <= day.date) m2History.push(m2Data[m2Idx++]);
-                    while(tipsIdx < tipsData.length && tipsData[tipsIdx].date <= day.date) tipsHistory.push(tipsData[tipsIdx++]);
-                    while(cftcIdx < cftcData.length && cftcData[cftcIdx].date <= day.date) cftcHistory.push(cftcData[cftcIdx++]);
+                    while(m2Idx < safeM2.length && safeM2[m2Idx].date <= day.date) m2History.push(m2Data[m2Idx++]);
+                    while(tipsIdx < safeTips.length && safeTips[tipsIdx].date <= day.date) tipsHistory.push(tipsData[tipsIdx++]);
+                    while(cftcIdx < safeCftc.length && safeCftc[cftcIdx].date <= day.date) cftcHistory.push(cftcData[cftcIdx++]);
                     
                     const evalCtx = { gold: finalData.slice(0, i + 1), m2: m2History, realRate: tipsHistory, cftc: cftcHistory };
                     const macroEval = MacroProbabilityModel.evaluate(evalCtx);
