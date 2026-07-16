@@ -84,20 +84,41 @@ export function MacroProbabilityPanel({ dataContext }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
         {/* 宏观因子面板 */}
         <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-          <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', fontWeight: 'bold' }}>核心宏观因子</div>
+          <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>核心宏观因子</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent-gold)' }}>
+              <span>当前时代: {factors.regime}</span>
+              <Tooltip content={
+                factors.regime === 'M2_DRIVEN' ? "大放水时代：M2同比>8%。模型大幅增加对M2流动性的敏感度。" :
+                factors.regime === 'RATE_DRIVEN' ? "高息压制时代：TIPS实际利率>1.5%且攀升。模型极度放大利率的拖累效应。" :
+                factors.regime === 'CB_BUYING' ? "央行购金时代：M2低迷但金价逆势上涨。模型将主要权重转移给神秘的购金溢价底座。" :
+                "平淡震荡期：无极端宏观数据。模型回归传统技术分析，由动量和趋势主导方向。"
+              } />
+            </div>
+          </div>
+          <MetricItem 
+            label="M2 货币供应量同比" 
+            tooltip="M2货币超发速度。在大放水时代（如次贷危机），这是支撑金价的最强底层逻辑。"
+            value={factors.m2YoY} 
+          />
           <MetricItem 
             label="M2 残差 (央行购金溢价)" 
-            tooltip="中美M2增速差带来的黄金定价残差。反映脱离美元信用体系的'非美元计价黄金'溢价（如中国央行持续购金支撑的底座）。正值表示有溢价支撑。"
+            tooltip="金价同比与M2同比之差。反映脱离美元信用体系的'非美元计价黄金'溢价（如中国央行持续购金支撑的底座）。正值表示有溢价支撑。"
             value={factors.m2Residual} 
             subtext={`模型贡献: ${contributions.m2}`} 
             color={parseFloat(contributions.m2) > 0 ? '#10B981' : 'var(--text-primary)'} 
           />
           <MetricItem 
             label="10Y TIPS 实际利率" 
-            tooltip="十年期美债实际收益率（名义利率-通胀预期）。作为黄金的持有'机会成本'，TIPS升高往往打压金价；如果TIPS跌破关键阈值，则黄金具备强配置价值。"
+            tooltip="十年期美债实际收益率（名义利率-通胀预期）。作为黄金的持有'机会成本'，TIPS升高往往打压金价。"
             value={factors.currentRate} 
             subtext={`变化率: ${factors.rateDelta} | 贡献: ${contributions.rate}`} 
             color={parseFloat(contributions.rate) < 0 ? '#EF4444' : 'var(--text-primary)'} 
+          />
+          <MetricItem 
+            label="12个月长期趋势" 
+            tooltip="过去一年的价格年化涨幅。用于判断当前是处于大牛市结构还是大熊市结构。"
+            value={factors.trend12m} 
           />
           <MetricItem 
             label="6个月动量" 
@@ -111,8 +132,14 @@ export function MacroProbabilityPanel({ dataContext }) {
         <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px' }}>
           <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', fontWeight: 'bold' }}>资金面与极值情绪</div>
           <MetricItem 
+            label="CFTC 拥挤度 (3年滚动分位数)" 
+            tooltip="当前净多头在过去3年历史中所处的位置。高于90%极度拥挤（看跌踩踏），低于10%极度悲观（看涨底背离）。"
+            value={factors.cftcPercentile} 
+            color={parseFloat(factors.cftcPercentile) > 90 ? '#EF4444' : parseFloat(factors.cftcPercentile) < 10 ? '#10B981' : 'var(--text-primary)'}
+          />
+          <MetricItem 
             label="CFTC 管理资金净多头变化" 
-            tooltip="对冲基金在期货市场的仓位变动。大幅增加代表聪明钱在建仓，极度拥挤（过高）时可能面临多头踩踏风险。"
+            tooltip="对冲基金在期货市场的仓位变动速度（近四周斜率）。大幅增加代表聪明钱在建仓。"
             value={factors.cftcDelta > 0 ? `+${factors.cftcDelta}` : factors.cftcDelta} 
             subtext={`模型贡献: ${contributions.cftc}`} 
           />
