@@ -1,8 +1,8 @@
 export class WorkerPool {
-  constructor(workerUrl, poolSize = Math.max(1, (navigator.hardwareConcurrency || 4) - 1)) {
+  constructor(workerFactoryOrUrl, poolSize = Math.max(1, (navigator.hardwareConcurrency || 4) - 1)) {
     this.workers = [];
     this.poolSize = poolSize;
-    this.workerUrl = workerUrl;
+    this.workerFactoryOrUrl = workerFactoryOrUrl;
     this.idleWorkers = [];
     this.tasks = [];
     this.results = [];
@@ -19,7 +19,12 @@ export class WorkerPool {
     for (let i = 0; i < this.poolSize; i++) {
       const initPromise = new Promise((resolve, reject) => {
         try {
-          const worker = new Worker(this.workerUrl, { type: 'module' });
+          let worker;
+          if (typeof this.workerFactoryOrUrl === 'function') {
+            worker = this.workerFactoryOrUrl();
+          } else {
+            worker = new Worker(this.workerFactoryOrUrl, { type: 'module' });
+          }
 
           worker.onerror = (err) => {
             worker.terminate();

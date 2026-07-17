@@ -38,21 +38,22 @@ export const TradingViewConnectModal = ({ isOpen, onClose, onFetch, isFetching }
         <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ marginBottom: '1.5rem', lineHeight: '1.6', color: '#ccc' }}>
             <p style={{ margin: '0 0 10px 0' }}>
-              为了获取 <strong style={{ color: '#EAB308' }}>COMEX黄金</strong> 的期权 Gamma 逼空防线，我们需要通过您的浏览器直接向 TradingView 发起数据请求 (Client-Side Scraping)。
+              为了获取 <strong style={{ color: '#EAB308' }}>COMEX黄金</strong> 的期权 Gamma 逼空防线，并绕过极为严格的 TLS/CORS 防护，我们采用 <strong>Tampermonkey 脚本桥接</strong> 方案。
             </p>
             <div style={{
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
+              background: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
               padding: '12px',
               borderRadius: '8px',
               marginTop: '12px',
               fontSize: '0.9em'
             }}>
-              <p style={{ margin: '0 0 8px 0', color: '#F87171', fontWeight: 'bold' }}>前置要求 (绕过跨域限制)：</p>
+              <p style={{ margin: '0 0 8px 0', color: '#60A5FA', fontWeight: 'bold' }}>油猴脚本 (Tampermonkey) 配置说明：</p>
               <ul style={{ margin: 0, paddingLeft: '20px', color: '#9CA3AF' }}>
-                <li>安装 Chrome 扩展程序 <a href="https://chrome.google.com/webstore/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf" target="_blank" rel="noreferrer" style={{ color: '#60A5FA' }}>Allow CORS</a></li>
-                <li>点击浏览器右上角的插件图标，将其 <strong>开启 (Turn On)</strong>。</li>
-                <li>如果仍报错，请在插件设置中勾选 <strong>Access-Control-Allow-Headers</strong> 和 <strong>Access-Control-Allow-Credentials</strong>。</li>
+                <li>请确保浏览器已安装 <strong>Tampermonkey</strong> 插件。</li>
+                <li>复制我刚刚发给你的 <strong>“TradingView 跨域桥接脚本”</strong> 代码。</li>
+                <li>在 Tampermonkey 中 <strong>添加新脚本</strong>，粘贴并保存。</li>
+                <li>刷新本测试页面。当脚本生效后，即可无缝、带 Cookie 抓取任何高级数据！</li>
               </ul>
             </div>
           </div>

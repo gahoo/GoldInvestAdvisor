@@ -133,11 +133,35 @@ class DataManager {
 
   /**
    * 获取期权横截面数据，专门给 TradingView 数据源使用
-   * 期权数据不走本地历史缓存，而是实时拉取最新横截面快照
+   * 带有带过期时间的 IndexedDB 缓存机制（设为 12 小时）
    */
-  async fetchOptionsChain(symbols) {
+  async fetchOptionsChain(symbols, forceRefresh = false) {
+    const cacheKey = `tradingview:options:${symbols.join('_')}`;
+    const CACHE_EXPIRE_MS = 12 * 60 * 60 * 1000; // 12小时过期
+    
+    // 如果不强制刷新，优先尝试从缓存获取
+    if (!forceRefresh) {
+      const cached = await dbStore.getSeries(cacheKey);
+      if (cached && cached.data && cached.data.length > 0) {
+        const age = Date.now() - (cached.metadata.updatedAt || 0);
+        if (age < CACHE_EXPIRE_MS) {
+          console.log(`[DataManager] 加载期权缓存数据 (距上次更新 ${Math.round(age/1000/60)} 分钟): ${cacheKey}`);
+          return cached.data;
+        } else {
+          console.log(`[DataManager] 期权缓存已过期 (${Math.round(age/1000/60)} 分钟)，准备重新拉取...`);
+        }
+      }
+    }
+
     const dataSource = registry['tradingview'];
-    return await dataSource.fetchOptionsData(symbols);
+    const data = await dataSource.fetchOptionsData(symbols);
+    
+    // 抓取成功后存入 IndexedDB 缓存
+    if (data && data.length > 0) {
+      await dbStore.saveSeries(cacheKey, { updatedAt: Date.now() }, data);
+    }
+    
+    return data;
   }
 }
 

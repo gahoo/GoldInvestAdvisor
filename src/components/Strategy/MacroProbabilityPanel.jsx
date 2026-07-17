@@ -18,7 +18,8 @@ export function MacroProbabilityPanel({ dataContext }) {
   const handleFetchTradingView = async () => {
     setIsFetchingOptions(true);
     try {
-      const data = await dataManager.fetchOptionsChain(['COMEX:GCQ2026', 'COMEX:GCV2026']);
+      // 传递 true 强制刷新（无视缓存）
+      const data = await dataManager.fetchOptionsChain(['COMEX:GCQ2026', 'COMEX:GCV2026'], true);
       console.log('✅ TradingView Options Data Successfully Fetched:', data);
       
       if (data && data.length > 0) {
@@ -46,6 +47,25 @@ export function MacroProbabilityPanel({ dataContext }) {
       setModelResult(result);
     }
   }, [dataContext]);
+
+  // 组件加载时自动尝试从本地缓存中读取上次抓取的期权数据
+  useEffect(() => {
+    dataManager.fetchOptionsChain(['COMEX:GCQ2026', 'COMEX:GCV2026'], false)
+      .then(data => {
+        if (data && data.length > 0) {
+          let maxGammaObj = data[0];
+          for (const item of data) {
+            if (item.gamma > maxGammaObj.gamma) {
+              maxGammaObj = item;
+            }
+          }
+          setGammaWall(maxGammaObj.strike);
+        }
+      }).catch(e => {
+        // 无缓存或解析失败则静默等待用户手动拉取
+        console.log('期权本地缓存读取失败或无缓存', e);
+      });
+  }, []);
 
   if (!modelResult) {
     return <div style={{ padding: '20px', color: 'var(--text-secondary)' }}>需要更多宏观数据以启动概率模型...</div>;

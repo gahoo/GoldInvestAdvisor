@@ -27,40 +27,71 @@ export class TradingViewSource extends DataSource {
   async fetchOptionsData(symbols) {
     const url = "https://scanner.tradingview.com/options/scan2?label-product=symbols-options";
     
-    const payloadString = `{"columns":["ask","bid","currency","delta","expiration","gamma","iv","option-type","pricescale","rho","root","strike","theoPrice","theta","vega","bid_iv","ask_iv"],"ignore_unknown_fields":false,"index_filters":[{"name":"underlying_symbol","values":["COMEX:GCQ2026","COMEX:GCV2026"]}],"filter2":{"operator":"and","operands":[{"expression":{"left":"type","operation":"equal","right":"option"}},{"operation":{"operator":"or","operands":[{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260717}},{"expression":{"left":"root","operation":"equal","right":"OG3"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260720}},{"expression":{"left":"root","operation":"equal","right":"G3M"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260721}},{"expression":{"left":"root","operation":"equal","right":"G3T"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260722}},{"expression":{"left":"root","operation":"equal","right":"G4W"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260723}},{"expression":{"left":"root","operation":"equal","right":"G4R"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260724}},{"expression":{"left":"root","operation":"equal","right":"OG4"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260727}},{"expression":{"left":"root","operation":"equal","right":"G4M"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260728}},{"expression":{"left":"root","operation":"equal","right":"OG"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260729}},{"expression":{"left":"root","operation":"equal","right":"G5W"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260730}},{"expression":{"left":"root","operation":"equal","right":"G5R"}}]}},{"operation":{"operator":"and","operands":[{"expression":{"left":"expiration","operation":"equal","right":20260731}},{"expression":{"left":"root","operation":"equal","right":"OG5"}}]}}]}}]}}`;
+    // 如果没有传入 symbols，或者传入空数组，给一个默认值
+    if (!symbols || symbols.length === 0) {
+      symbols = ["COMEX:GC1!"];
+    }
+    
+    // 动态生成 payload，移除极其严格的日期限制，获取所有期权
+    const payload = {
+      "columns": [
+        "ask", "bid", "currency", "delta", "expiration", "gamma", 
+        "iv", "option-type", "pricescale", "rho", "root", "strike", 
+        "theoPrice", "theta", "vega", "bid_iv", "ask_iv"
+      ],
+      "ignore_unknown_fields": false,
+      "index_filters": [
+        {
+          "name": "underlying_symbol",
+          "values": symbols
+        }
+      ],
+      "filter2": {
+        "operator": "and",
+        "operands": [
+          {
+            "expression": {
+              "left": "type",
+              "operation": "equal",
+              "right": "option"
+            }
+          }
+        ]
+      }
+    };
+    
+    const payloadString = JSON.stringify(payload);
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        credentials: "include", // <--- 关键：发送当前 TradingView 登录状态下的 Cookie 权限凭证
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json"
-        },
-        body: payloadString
-      });
-
-      if (!response.ok) {
-        throw new Error(`TradingView API HTTP Error: ${response.status}`);
+      let json;
+      if (typeof window.GM_fetchTradingViewOptions === 'function') {
+        // 使用 Tampermonkey 脚本桥接，完美解决 CORS 和 TLS 指纹问题
+        const responseData = await window.GM_fetchTradingViewOptions(url, payloadString);
+        json = responseData;
+      } else {
+        throw new Error('未检测到 Tampermonkey 桥接脚本。请按照弹窗说明安装油猴脚本，然后刷新页面重试。');
       }
 
-      const json = await response.json();
+      const dataArray = json.data || json.symbols;
       
-      // 格式化数据，提取我们需要的字段
-      if (!json.data || !Array.isArray(json.data)) {
+      if (json.totalCount === 0 || !dataArray || dataArray.length === 0) {
         return [];
       }
 
       // "columns":["ask","bid","currency","delta","expiration","gamma","iv","option-type","pricescale","rho","root","strike","theoPrice","theta","vega","bid_iv","ask_iv"]
-      const formattedData = json.data.map(item => ({
-        symbol: item.s,
-        delta: item.d[3] || 0,
-        expiration: item.d[4],
-        gamma: item.d[5] || 0,
-        iv: item.d[6] || 0,
-        optionType: item.d[7], // 'C' 或 'P'
-        strike: item.d[11] || 0,
-      }));
+      const formattedData = dataArray.map(item => {
+        // TradingView 的期权 scanner 会把数据数组放在 f 字段里（股票放在 d 字段）
+        const values = item.f || item.d || item.v || [];
+        return {
+          symbol: item.s,
+          delta: values[3] || 0,
+          expiration: values[4],
+          gamma: values[5] || 0,
+          iv: values[6] || 0,
+          optionType: values[7], // 'C' 或 'P'
+          strike: values[11] || 0,
+        };
+      });
 
       // 按 strike 排序
       return formattedData.sort((a, b) => a.strike - b.strike);

@@ -19,6 +19,7 @@ import { MacroProbabilityPanel } from './components/Strategy/MacroProbabilityPan
 import { MacroProbabilityModel } from './utils/strategy/MacroProbabilityModel';
 import BackgroundTaskToast from './components/BackgroundTaskToast';
 import { WorkerPool } from './workers/workerPool';
+import BacktestWorker from './workers/backtest.worker.js?worker';
 import { GlobalAlertModal, alertService } from './components/AlertModal';
 const MACRO_LAG_CONFIG = {
   m2: 45,    // 极度保守：推迟45个自然日，确保覆盖月末发布 (M2SL发布通常滞后一个月以上)
@@ -204,8 +205,7 @@ function App() {
         return;
       }
 
-      const workerUrl = new URL('./workers/backtest.worker.js', import.meta.url);
-      pool = new WorkerPool(workerUrl);
+      pool = new WorkerPool(() => new BacktestWorker());
 
       const initPayload = {
         data: backtestData,
