@@ -4,6 +4,7 @@ import { YahooFinanceSource } from './YahooFinanceSource.js';
 import { EastMoneyFundSource } from './EastMoneyFundSource.js';
 import FREDSource from './FREDSource.js';
 import CFTCSource from './CFTCSource.js';
+import { TradingViewSource } from './TradingViewSource.js';
 
 // 简单的数据源注册表
 const registry = {
@@ -11,7 +12,8 @@ const registry = {
   'yahoo': new YahooFinanceSource(),
   'fund': new EastMoneyFundSource(),
   'fred': FREDSource,
-  'cftc': CFTCSource
+  'cftc': CFTCSource,
+  'tradingview': new TradingViewSource()
 };
 
 /**
@@ -127,6 +129,15 @@ class DataManager {
   async getBacktestData(params) {
     const fullData = await this.fetchData(params);
     return fullData.filter(d => d.isFinal);
+  }
+
+  /**
+   * 获取期权横截面数据，专门给 TradingView 数据源使用
+   * 期权数据不走本地历史缓存，而是实时拉取最新横截面快照
+   */
+  async fetchOptionsChain(symbols) {
+    const dataSource = registry['tradingview'];
+    return await dataSource.fetchOptionsData(symbols);
   }
 }
 

@@ -19,6 +19,7 @@ import { MacroProbabilityPanel } from './components/Strategy/MacroProbabilityPan
 import { MacroProbabilityModel } from './utils/strategy/MacroProbabilityModel';
 import BackgroundTaskToast from './components/BackgroundTaskToast';
 import { WorkerPool } from './workers/workerPool';
+import { GlobalAlertModal, alertService } from './components/AlertModal';
 const MACRO_LAG_CONFIG = {
   m2: 45,    // 极度保守：推迟45个自然日，确保覆盖月末发布 (M2SL发布通常滞后一个月以上)
   cftc: 3,   // 周二的持仓报告在周五发布，滞后3天
@@ -219,7 +220,7 @@ function App() {
       } catch (err) {
         console.error("Worker pool init failed:", err);
         setLeaderboardLoading(false);
-        alert(`计算核心初始化失败: ${err.message}。这可能是浏览器隐私模式或资源限制导致的。`);
+        alertService.alert(`计算核心初始化失败: ${err.message}。\n这可能是浏览器隐私模式或资源限制导致的。`, '初始化错误');
         return;
       }
       if (isCancelled) return;
@@ -524,6 +525,7 @@ function App() {
         {...confirmDialog} 
         onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} 
       />
+      <GlobalAlertModal />
       
       {!indicators ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'var(--text-secondary)' }}>

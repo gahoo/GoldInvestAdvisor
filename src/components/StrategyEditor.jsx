@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { parse } from 'mathjs';
+import { alertService } from './AlertModal';
 
 export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, onCancel, onEdit, onDelete }) {
   const [name, setName] = useState('');
@@ -66,17 +67,16 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
 
   const handleSave = () => {
     if (!name.trim()) {
-      alert("请输入策略名称");
+      alertService.alert("请输入策略名称", "验证失败");
       return;
     }
     if (!script.trim()) {
-      alert("请输入策略脚本");
+      alertService.alert("请输入策略脚本", "验证失败");
       return;
     }
     if (error) {
-      if (!window.confirm("代码存在语法错误，是否依然保存？")) {
-        return;
-      }
+      alertService.alert("代码存在语法错误，请检查后再保存。", "保存失败");
+      return;
     }
 
     const newStrategy = {
@@ -99,10 +99,10 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
           setShowImportModal(false);
           setToastMessage("导入成功！");
         } else {
-          alert("JSON 格式不正确，缺少 name 或 script 字段。");
+          alertService.alert("JSON 格式不正确，缺少 name 或 script 字段。", "导入失败");
         }
       } catch (e) {
-        alert("JSON 解析失败，请检查格式。");
+        alertService.alert("JSON 解析失败，请检查格式。", "导入失败");
       }
     }
   };
@@ -113,7 +113,7 @@ export function StrategyEditor({ type, strategy, isBuiltIn, readOnly, onSave, on
     navigator.clipboard.writeText(jsonStr).then(() => {
       setToastMessage("策略配置已复制到剪贴板！");
     }).catch(err => {
-      alert("复制失败，请手动复制以下代码：\n\n" + jsonStr);
+      alertService.alert("复制失败，请手动复制以下代码：\n\n" + jsonStr, "复制失败");
     });
   };
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { dbStore } from '../../services/storage/IndexedDBStore';
 import { importCSV, exportToCSV } from '../../utils/csvParser';
 import { X, Search, Download, Upload, Trash2, RefreshCw } from 'lucide-react';
+import { alertService } from '../AlertModal';
 
 export function DataSourcePanel({ onClose, onSelectSymbol, onRemoveRecent, onClearRecent }) {
   const [cachedItems, setCachedItems] = useState([]);
@@ -89,10 +90,10 @@ export function DataSourcePanel({ onClose, onSelectSymbol, onRemoveRecent, onCle
       };
       
       await dbStore.saveSeries(cacheKey, metadata, data);
-      alert('导入成功！');
+      alertService.alert('导入成功！', '导入成功');
       await loadCache();
     } catch (err) {
-      alert(`导入失败: ${err.message}`);
+      alertService.alert(`导入失败: ${err.message}`, '导入错误');
     } finally {
       setIsImporting(false);
       e.target.value = ''; // clear input

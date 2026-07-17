@@ -1,9 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { MacroProbabilityModel } from '../../utils/strategy/MacroProbabilityModel';
 import { Tooltip } from '../Tooltip';
+import { RefreshCw } from 'lucide-react';
+import { TradingViewConnectModal } from '../DataManagement/TradingViewConnectModal';
+import { dataManager } from '../../services/data/DataManager';
+import { CORSError } from '../../services/data/TradingViewSource';
+import { alertService } from '../AlertModal';
 
 export function MacroProbabilityPanel({ dataContext }) {
   const [modelResult, setModelResult] = useState(null);
+
+  // TradingView Options Scraping
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isFetchingOptions, setIsFetchingOptions] = useState(false);
+  const [gammaWall, setGammaWall] = useState(null);
+
+  const handleFetchTradingView = async () => {
+    setIsFetchingOptions(true);
+    try {
+      const data = await dataManager.fetchOptionsChain(['COMEX:GCQ2026', 'COMEX:GCV2026']);
+      console.log('✅ TradingView Options Data Successfully Fetched:', data);
+      
+      if (data && data.length > 0) {
+        let maxGammaObj = data[0];
+        for (const item of data) {
+          if (item.gamma > maxGammaObj.gamma) {
+            maxGammaObj = item;
+          }
+        }
+        setGammaWall(maxGammaObj.strike);
+        setIsModalOpen(false); // 成功后关闭弹窗
+        alertService.alert(`抓取成功！Gamma 防线：$${maxGammaObj.strike}`, '抓取成功');
+      } else {
+        throw new Error('服务端返回的数据为空。请检查合约近期是否有期权交易，或您的 CORS 插件是否配置正确。');
+      }
+    } finally {
+      setIsFetchingOptions(false);
+    }
+  };
 
   useEffect(() => {
     // 自动重新计算
@@ -146,7 +180,24 @@ export function MacroProbabilityPanel({ dataContext }) {
           <MetricItem 
             label="期权 Gamma 逼空防线" 
             tooltip="期权做市商在哪个价位持有最集中的空头敞口。当价格逼近该防线时，做市商为了对冲风险被迫买入现货，极易引发'Gamma Squeeze'（向上逼空暴涨）行情。"
-            value={scenarios.resistanceWall ? `$${scenarios.resistanceWall}` : '数据未接入'} 
+            value={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {gammaWall ? `$${gammaWall}` : (scenarios.resistanceWall ? `$${scenarios.resistanceWall}` : (
+                  <span 
+                    onClick={() => setIsModalOpen(true)}
+                    title="点击配置并拉取期权数据"
+                    style={{
+                      color: 'var(--text-secondary)', cursor: 'pointer', textDecoration: 'underline',
+                      textUnderlineOffset: '4px', textDecorationStyle: 'dashed'
+                    }}
+                    onMouseOver={e => e.currentTarget.style.color = 'var(--accent-gold)'}
+                    onMouseOut={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+                  >
+                    数据未接入
+                  </span>
+                ))}
+              </div>
+            } 
             subtext="做市商最大看涨期权空头堆积区" 
             color="var(--accent-gold)" 
           />
@@ -158,6 +209,13 @@ export function MacroProbabilityPanel({ dataContext }) {
           />
         </div>
       </div>
+      
+      <TradingViewConnectModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onFetch={handleFetchTradingView}
+        isFetching={isFetchingOptions}
+      />
     </div>
   );
 }
